@@ -1,0 +1,14 @@
+{
+  "name": "@native-credit/oracle",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "2-of-3 Ed25519 price signer for Native Credit",
+  "scripts": {
+    "update": "node src/update.mjs",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
