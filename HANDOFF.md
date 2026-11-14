@@ -30,8 +30,11 @@ Last updated: 2026-11-07
 - `v2.native-credit.testnet` is deployed and initialized; position `1` exists,
   owned by `borrower.native-credit.testnet`. The retired v1 contract remains at
   `native-credit.testnet` for historical evidence.
-- Git repository exists at commit `f8241dc`. No baseline tag is present. This
-  run log predates the first public push; see `README.md` for current state.
+- v1 funds were recovered on 2026-11-14: `0.085904 ETH` withdrawn to
+  `0x0d5d...b8fa6`, position `Idle` with only gas dust. V2 still uses
+  `native-credit.testnet` as guardian.
+- Current branch is `phase-1/security-hardening`; see `README.md` for current
+  live state and `phase-1-operational-readiness.md` for deployment gates.
 
 ## Local implementation
 

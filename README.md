@@ -88,7 +88,7 @@ The Sepolia payout succeeded, but the NEAR position remains `WithdrawalPending` 
 
 ### v1 (`native-credit.testnet`)
 
-The retired v1 position is in `NeedsReview`, with recorded collateral `0.049966999999448 ETH` and a pending `0.01 ETH` withdrawal to the v2 deposit address. It is retained as historical evidence and should be reconciled or explicitly retired before further use.
+The v1 position was recovered on 2026-11-14. The stale pending withdrawal was cleared, the current finalized balance was credited, oracle sequence `11` refreshed the price, and `0.085904 ETH` was withdrawn to `0x0d5d...b8fa6` in Sepolia tx `0x353b6195c17b93f829cef096e6b5dbd77c3418e43f9da1dafad2796a8aa11a3b`. V1 is now `Idle` with debt `0` and only `0.000020999999664 ETH` gas dust remaining. V2 still uses the v1 account as guardian; that is the remaining v1 dependency.
 
 ### Gas note
 

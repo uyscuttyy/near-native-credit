@@ -9,14 +9,15 @@ Deployment status: not deployed. Live state was not modified.
 **No production deployment yet.** Phase 1 code and local tests are complete, but the following gates remain:
 
 1. Review the committed changes.
-2. Snapshot/export live contract state.
-3. Build and review the production wasm.
-4. Upgrade/redeploy in a controlled window.
-5. Reconcile the existing live v2 withdrawal.
-6. Run the legacy-ticket migration, then move the guardian off v1.
-7. Re-run the live two-provider proof path.
+2. Move v2's guardian off the v1 account and archive v1 operational references.
+3. Snapshot/export live contract state.
+4. Build and review the production wasm.
+5. Upgrade/redeploy in a controlled window.
+6. Reconcile the existing live v2 withdrawal.
+7. Run the legacy-ticket migration.
+8. Re-run the live two-provider proof path.
 
-The live v2 ticket is still `Signed`, and the live v1 position is still `NeedsReview`. The code changes do not retroactively repair persisted state.
+The live v2 ticket is still `Signed`, and the live v1 position has been recovered to `Idle`. The code changes do not retroactively repair persisted v2 state.
 
 ## Live state as last observed
 
@@ -34,12 +35,26 @@ The live v2 ticket is still `Signed`, and the live v1 position is still `NeedsRe
   - status: succeeded
 - NEAR confirmation: not submitted
 
-### v1 position
+### v1 position recovered
 
-- Status: `NeedsReview`
-- Requires investigation before any cleanup.
+- Status: `Idle`
+- Collateral: `0.000020999999664 ETH` gas dust
+- Debt: `0`
+- Nonce: `4`
+- Last verified block: `12133272`
+- Pending operations: none
+- Recovered: `0.085904 ETH` to `0x0d5d9acdb6adf6dce00d14972f7ce7b1e99b8fa6`
+- Sepolia tx: `0x353b6195c17b93f829cef096e6b5dbd77c3418e43f9da1dafad2796a8aa11a3b` (block `12133272`, status succeeded, `gasUsed=21000`)
+- NEAR txs:
+  - clear: `8JPE32e1xHbdB3ss4HBJh9UWTVMdzaLVHDN2DGQfVGFh`
+  - record deposit: `AtJzmp3LMezgrixp7xEfzwZHLDi5GWemxEoSiSeCnEQ4`
+  - register payout address: `44e5XJFCzjjL6V3xnrVLNPfKGz3kuLk1o7kkhoFmyrBC`
+  - oracle sequence `11`: `CnT6RfJjLpF5BcZR36uhxfgMDviXTpLeDKtdiUWykqrQ`
+  - withdraw: `86zNEv9WJoJUY7Mn1JCfjM8buRBKJXkpJFBBRmcqpMru`
+  - confirm: `CKU2wZWaDWhaHdwxNxXFm7sUhfPbEUzwCRyoKRXvtHQC`
+- Remaining v1 dependency: v2 guardian is still `native-credit.testnet`.
 
-Do not run `clear_stuck_proof` on either position without checking whether a signed payout exists. Signed payouts require proof.
+Do not run `clear_stuck_proof` on a position without checking whether a signed payout exists. Signed payouts require proof.
 
 ## Upgrade considerations
 
@@ -159,6 +174,6 @@ If the ticket is `Refunding`, wait for the callback. Do not start a second refun
 - [ ] Deployment/upgrade script prepared and dry-run.
 - [ ] Two independent Sepolia providers validated.
 - [ ] Live v2 withdrawal reconciled with a finality proof.
-- [ ] Live v1 `NeedsReview` investigated.
+- [x] Live v1 `NeedsReview` investigated and funds recovered.
 - [ ] Rollback plan documented, including the new-status incompatibility.
 - [ ] Monitoring/alerts configured for refunds, `NeedsReview`, failed payouts, and stale prices.

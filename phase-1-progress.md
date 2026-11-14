@@ -35,6 +35,7 @@ Fix the four High security findings from the audit, harden the proof/oracle/liqu
 - Aligned liquidator/keeper estimates with contract max-repay, gas-reserve, and bad-debt rules.
 - Added/updated contract, relayer, liquidator, and keeper tests.
 - Added a one-time private `migrate_legacy_ticket` path for the exact persisted v2 `Signed` ticket, with a one-time storage guard and strict state checks.
+- Recovered the v1 testnet balance: cleared the stale pending withdrawal, credited the current finalized proof, refreshed the v1 oracle price, withdrew `0.085904 ETH` to `0x0d5d...b8fa6`, and confirmed the payout.
 - Updated relayer/VERIFY/HANDOFF documentation to remove the single-provider workaround.
 
 ## Verification
@@ -55,16 +56,16 @@ See `phase-1-test-report.md` for commands and scope limits.
 
 ## Not Done
 
-- No contract deployment, upgrade, or live-state change was made.
+- No contract deployment or upgrade was made. Live v1 recovery transactions were executed on 2026-11-14; live v2 is unchanged.
 - Two-provider live Sepolia proof generation was not re-run; public-provider availability remains an operational dependency.
-- The live v2 ticket remains `Signed`; the live v1 position remains `NeedsReview`.
+- The live v2 ticket remains `Signed`; v2 still uses the v1 account as guardian.
 - No fuzzing, formal verification, fallback oracle, timelock, or full event schema was added.
 - Production wasm deployment review is still required; the candidate build is not deployed.
 
 ## Next
 
-1. Commit and push the legacy-ticket migration milestone.
-2. Recover the v1 testnet balance, then retire v1 and move v2's guardian off the v1 account.
+1. Commit and push the v1 recovery milestone.
+2. Move v2's guardian off the v1 account, then archive v1 operational references.
 3. Snapshot/export live state before any upgrade.
 4. Deploy the reviewed wasm in a controlled window.
 5. Reconcile the live v2 withdrawal with a finality proof; do not clear it as an unsigned stuck proof.
