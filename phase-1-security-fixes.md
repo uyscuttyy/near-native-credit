@@ -11,7 +11,7 @@ Deployment status: not deployed; live state unchanged.
 | F-01 | Failed/stuck liquidation consumes liquidator USDC without refund | Fixed in contract and agent estimates | Not deployed |
 | F-02 | Liquidation ticket status is overwritten by later signatures | Fixed in contract | Live v2 ticket still `Signed` |
 | F-03 | Bad debt is never recorded | Fixed in contract | Not deployed |
-| F-04 | No safe recovery for signed/unbroadcast or proof-mismatched operations | Fixed in contract | Live v1 still `NeedsReview` |
+| F-04 | No safe recovery for signed/unbroadcast or proof-mismatched operations | Fixed in contract | Live v1 recovered and retired |
 | F-05 | Oracle duplicate keys, future timestamps, stale health | Duplicate/future/stale fixed; centralization and fallback remain | Not deployed |
 | F-06 | Live proof path used single-provider quorum | Code now requires two chain-valid providers | Live two-provider run not re-executed |
 
@@ -58,7 +58,7 @@ A Sepolia EOA must retain ETH for gas. Full liquidation therefore seizes `collat
 
 ### Live consequence
 
-The existing live v2 ticket is still `Signed`. The code fix prevents new corruption but does not repair persisted state. Reconcile the pending withdrawal through `confirm_withdrawal` with a valid finality proof, then run the one-time private `migrate_legacy_ticket` path. That path only accepts the exact persisted position `1` state, requires no pending operation and zero debt, marks the ticket `Settled` without moving funds, and records a one-time storage flag.
+The live v2 ticket was migrated from `Signed` to `Settled` on 2026-11-14 after the pending withdrawal was confirmed. The one-time private `migrate_legacy_ticket` path accepted only the exact persisted position `1` state, required no pending operation and zero debt, moved no funds, and recorded a one-time storage flag.
 
 ## F-03: Bad-debt recording
 

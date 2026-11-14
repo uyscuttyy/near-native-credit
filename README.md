@@ -210,7 +210,7 @@ npm run dev
 
 The app defaults to `v2.native-credit.testnet` and hardcoded position `1`. It is a demo, not the final self-serve UI. Override the contract, USDC, or RPC with `VITE_CONTRACT_ID`, `VITE_USDC_ID`, and `VITE_NEAR_RPC`.
 
-The UI cannot create positions, discover all user positions, verify deposits, broadcast/confirm withdrawals, liquidate, or obtain test USDC. It also contains stale v1 transaction evidence.
+The UI cannot create positions, discover all user positions, verify deposits, broadcast/confirm withdrawals, liquidate, or obtain test USDC. Its evidence links now point to the reconciled v2 deposit, repayment, withdrawal, and confirmation transactions.
 
 ---
 
@@ -250,12 +250,11 @@ This is not a mainnet product and must not be presented as one. No supplier mark
 
 Before any further live user-facing action:
 
-1. Approve the audit findings and assign owners.
-2. Reconcile the v2 and v1 live positions.
-3. Fix or explicitly guard the High findings.
-4. Require at least two independent proof providers.
-5. Add regression and invariant tests for the failure paths.
-6. Keep this README, `HANDOFF.md`, and `VERIFY.md` synchronized with verified live state.
+1. Add monitoring/alerts for refunds, `NeedsReview`, failed payouts, and stale prices.
+2. Document and rehearse rollback with the saved pre-upgrade wasm and state export.
+3. Decide whether to remove the now-inert one-time `migrate_legacy_ticket` function in a follow-up upgrade.
+4. Assign owners for the remaining Medium/Low audit findings.
+5. Keep this README, `HANDOFF.md`, and `VERIFY.md` synchronized with verified live state.
 
 See [`recommended-roadmap.md`](./recommended-roadmap.md) for the P0/P1/P2/P3 sequence.
 

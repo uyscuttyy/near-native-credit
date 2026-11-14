@@ -212,6 +212,9 @@ npm run build
      `Idle` with `collateral_wei=49966999999448000`,
      `last_verified_nonce=2`, and `last_verified_block=12078967`. Only gas left
      the collateral account. See `AUDIT/FOLLOWUP.md`.
+   - Recovered on 2026-11-14: stale pending withdrawal cleared, current balance
+     credited, `0.085904 ETH` withdrawn to `0x0d5d...b8fa6`, final state
+     `Idle` with `collateral_wei=20999999664000` and nonce `4`.
 9. Agent checks:
    - `agents/watcher`: **16 tests pass**;
    - `agents/keeper`: **8 tests pass**;

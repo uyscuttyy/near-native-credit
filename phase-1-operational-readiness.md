@@ -128,7 +128,9 @@ If the ticket is `Refunding`, wait for the callback. Do not start a second refun
 4. Owner or guardian calls `clear_stuck_proof(position_id)`.
 5. If the operation is an active unsigned liquidation, the contract refunds the liquidator.
 
-### 3a. Legacy v2 signed ticket after withdrawal confirmation
+### 3a. Legacy v2 signed ticket after withdrawal confirmation (executed)
+
+Executed on 2026-11-14 in tx `45XzfjBwYcaAWHRrqoEJ8s5yGYmrKt32SDPQPfmbM3Yz`; retained as history.
 
 1. Confirm position `1` is `Idle`, debt is `0`, and no pending operation exists.
 2. Confirm the ticket is `Signed` with liquidator `borrower.native-credit.testnet`, collateral `36_000_000_000_000_000` wei, repay `10_000_000`, and destination `0xec29df4cf529cf8be4fbc8380cf732cff82389bc`.
@@ -180,5 +182,5 @@ If the ticket is `Refunding`, wait for the callback. Do not start a second refun
 - [x] Two independent Sepolia providers validated.
 - [x] Live v2 withdrawal reconciled with a finality proof.
 - [x] Live v1 `NeedsReview` investigated and funds recovered.
-- [ ] Rollback plan documented, including the new-status incompatibility.
+- [ ] Rollback plan rehearsed; saved pre-upgrade wasm/state are available.
 - [ ] Monitoring/alerts configured for refunds, `NeedsReview`, failed payouts, and stale prices.

@@ -14,10 +14,11 @@ import {
 } from "./near.js";
 
 const MAX_U128 = 2n ** 128n - 1n;
-const DEPOSIT_TX = "AEjzsP4swSxcvQ34ECAdpZMKiaZaHH6viqfckuvnyUgQ";
-const REPAY_TX = "CW8wW3p1QvakoXQDDcx8jgUyztaf4daFGFmL2b6awHLo";
+const DEPOSIT_TX = "9MfPsqDmXfHPkNxbxNsHAkQ3b9PXRBDtW3VgbL1sJL5d";
+const REPAY_TX = "B5BaDvaqNths4BRD4hjnYagFseyR3jjGqT21N3U6yP2w";
 const WITHDRAW_TX =
-  "0x671d78716a1bcfc79931b78d2764d340cd85e866e2df902ad1ae9e8ba0b72362";
+  "0x2a90b77ad94583af484e0f25fdf3f33a69c4d9e60869fbf7830b86738271f58f";
+const CONFIRM_TX = "CWHvU2SN8RntCU4srqdY4GBjCxLCf8W7fpRro7xjR4fc";
 
 function friendlyError(error) {
   const message = error?.message ?? String(error);
@@ -733,7 +734,7 @@ export default function App() {
                 <div>
                   <strong>Sepolia light-client deposit</strong>
                   <span>
-                    finalized block{" "}
+                    latest verified block{" "}
                     {position?.last_verified_block ?? "—"} ·{" "}
                     <Link
                       href={`https://testnet.nearblocks.io/txns/${DEPOSIT_TX}`}
@@ -758,15 +759,21 @@ export default function App() {
                 </div>
               </li>
               <li>
-                <Badge tone="warn">Pending</Badge>
+                <Badge tone="ok">Real</Badge>
                 <div>
                   <strong>MPC-signed ETH withdrawal</strong>
                   <span>
-                    broadcast to Sepolia ·{" "}
+                    Sepolia payout{" "}
                     <Link
                       href={`https://sepolia.etherscan.io/tx/${WITHDRAW_TX}`}
                     >
                       {shortAddress(WITHDRAW_TX, 10, 6)}
+                    </Link>{" "}
+                    ·{" "}
+                    <Link
+                      href={`https://testnet.nearblocks.io/txns/${CONFIRM_TX}`}
+                    >
+                      NEAR confirmation
                     </Link>
                   </span>
                 </div>
