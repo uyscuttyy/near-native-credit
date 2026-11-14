@@ -34,39 +34,40 @@ Fix the four High security findings from the audit, harden the proof/oracle/liqu
   - proof collection fails closed below quorum.
 - Aligned liquidator/keeper estimates with contract max-repay, gas-reserve, and bad-debt rules.
 - Added/updated contract, relayer, liquidator, and keeper tests.
+- Added a one-time private `migrate_legacy_ticket` path for the exact persisted v2 `Signed` ticket, with a one-time storage guard and strict state checks.
 - Updated relayer/VERIFY/HANDOFF documentation to remove the single-provider workaround.
 
 ## Verification
 
-- Contract unit tests: `43 passed`.
+- Contract unit tests: `45 passed`.
 - Contract local E2E tests: `6 passed`.
 - Relayer tests: `26 passed`.
 - Keeper tests: `8 passed`.
 - Liquidator tests: `12 passed`.
 - Oracle tests: `4 passed`.
 - Watcher tests: `16 passed`.
-- Total recorded tests: `115 passed`.
+- Total recorded tests: `117 passed`.
 - `cargo fmt --all -- --check`: clean.
 - `cargo clippy -p native-credit --all-targets -- -D warnings`: clean.
-- `cargo check -p native-credit --target wasm32-unknown-unknown`: passed.
+- `cargo build -p native-credit --target wasm32-unknown-unknown --release`: passed.
 
 See `phase-1-test-report.md` for commands and scope limits.
 
 ## Not Done
 
 - No contract deployment, upgrade, or live-state change was made.
-- The existing v2 `Signed` liquidation ticket still has no legacy reconciliation path; new code treats it as active and `clear_stuck_proof` cannot clear it.
 - Two-provider live Sepolia proof generation was not re-run; public-provider availability remains an operational dependency.
 - The live v2 ticket remains `Signed`; the live v1 position remains `NeedsReview`.
 - No fuzzing, formal verification, fallback oracle, timelock, or full event schema was added.
-- Production wasm build and deployment review are still required.
+- Production wasm deployment review is still required; the candidate build is not deployed.
 
 ## Next
 
-1. Commit and push this milestone.
-2. Add a one-time, private legacy-ticket migration for the existing v2 `Signed` ticket and test it.
-3. Recover the v1 testnet balance, then retire v1 and move v2's guardian off the v1 account.
-4. Build and review the deployment artifact; snapshot/export live state before any upgrade.
-5. Re-run the live proof path with two independent Sepolia providers.
-6. Reconcile the live v2 withdrawal with a finality proof; do not clear it as an unsigned stuck proof.
-7. Decide whether to address remaining Medium/Low findings in Phase 2.
+1. Commit and push the legacy-ticket migration milestone.
+2. Recover the v1 testnet balance, then retire v1 and move v2's guardian off the v1 account.
+3. Snapshot/export live state before any upgrade.
+4. Deploy the reviewed wasm in a controlled window.
+5. Reconcile the live v2 withdrawal with a finality proof; do not clear it as an unsigned stuck proof.
+6. Run the one-time legacy-ticket migration after the withdrawal is confirmed.
+7. Re-run the live proof path with two independent Sepolia providers.
+8. Decide whether to address remaining Medium/Low findings in Phase 2.

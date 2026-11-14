@@ -21,6 +21,13 @@ const MAX_BLOCK_HASH_LEN: usize = 33;
 // withdraw to an existing EOA.
 const MIN_WITHDRAWAL_GAS_LIMIT: u64 = 250_000;
 const SEPOLIA_CHAIN_ID: u64 = 11_155_111;
+const LEGACY_TICKET_POSITION_ID: u64 = 1;
+const LEGACY_TICKET_OWNER: &str = "borrower.native-credit.testnet";
+const LEGACY_TICKET_LIQUIDATOR: &str = "borrower.native-credit.testnet";
+const LEGACY_TICKET_COLLATERAL_WEI: u128 = 36_000_000_000_000_000;
+const LEGACY_TICKET_REPAY_USDC: u128 = 10_000_000;
+const LEGACY_TICKET_SEPOLIA_ADDRESS: &str = "0xec29df4cf529cf8be4fbc8380cf732cff82389bc";
+const LEGACY_TICKET_MIGRATION_KEY: &[u8] = b"legacy_ticket_migrated_v1";
 
 #[derive(BorshStorageKey)]
 #[near(serializers = [borsh])]
@@ -1069,6 +1076,69 @@ impl Contract {
         position.status = PositionStatus::Idle;
         self.positions.insert(position_id, position);
         env::log_str("stuck_proof_cleared");
+    }
+
+    #[private]
+    pub fn migrate_legacy_ticket(&mut self) {
+        require!(
+            env::predecessor_account_id() == env::current_account_id(),
+            "private"
+        );
+        require!(
+            env::storage_read(LEGACY_TICKET_MIGRATION_KEY).is_none(),
+            "legacy ticket already migrated"
+        );
+        let mut position = self
+            .positions
+            .get(&LEGACY_TICKET_POSITION_ID)
+            .cloned()
+            .expect("position");
+        require!(
+            position.owner.as_str() == LEGACY_TICKET_OWNER,
+            "unexpected legacy owner"
+        );
+        require!(position.status == PositionStatus::Idle, "position not idle");
+        require!(position.debt_usdc.0 == 0, "legacy position has debt");
+        require!(
+            position.pending_deposit.is_none()
+                && position.pending_withdrawal.is_none()
+                && position.pending_borrow.is_none(),
+            "legacy position has pending operation"
+        );
+        let ticket = position
+            .liquidation_ticket
+            .as_mut()
+            .expect("legacy ticket missing");
+        require!(
+            ticket.liquidator.as_str() == LEGACY_TICKET_LIQUIDATOR,
+            "unexpected legacy liquidator"
+        );
+        require!(
+            ticket.collateral_wei.0 == LEGACY_TICKET_COLLATERAL_WEI,
+            "unexpected legacy collateral"
+        );
+        require!(
+            ticket.repay_usdc.0 == LEGACY_TICKET_REPAY_USDC,
+            "unexpected legacy repay"
+        );
+        require!(
+            ticket.sepolia_address == LEGACY_TICKET_SEPOLIA_ADDRESS,
+            "unexpected legacy destination"
+        );
+        require!(
+            ticket.status == TicketStatus::Signed,
+            "legacy ticket not signed"
+        );
+        ticket.status = TicketStatus::Settled;
+        self.positions.insert(LEGACY_TICKET_POSITION_ID, position);
+        env::storage_write(LEGACY_TICKET_MIGRATION_KEY, b"1");
+        env::log_str(
+            &json!({
+                "event": "legacy_ticket_migrated",
+                "position_id": LEGACY_TICKET_POSITION_ID,
+            })
+            .to_string(),
+        );
     }
 
     pub fn get_config(&self) -> Config {
@@ -2130,6 +2200,92 @@ mod tests {
             sequence: 2,
         });
         assert_eq!(contract.get_health(1).0, u128::MAX);
+    }
+
+    fn legacy_position() -> Position {
+        Position {
+            owner: LEGACY_TICKET_OWNER.parse().unwrap(),
+            status: PositionStatus::Idle,
+            deposit_address: None,
+            collateral_wei: U128(1),
+            last_verified_block: 1,
+            last_verified_nonce: 3,
+            debt_usdc: U128(0),
+            last_accrual_secs: 1,
+            pending_deposit: None,
+            pending_withdrawal: None,
+            pending_borrow: None,
+            liquidation_ticket: Some(LiquidationTicket {
+                liquidator: LEGACY_TICKET_LIQUIDATOR.parse().unwrap(),
+                collateral_wei: U128(LEGACY_TICKET_COLLATERAL_WEI),
+                repay_usdc: U128(LEGACY_TICKET_REPAY_USDC),
+                sepolia_address: LEGACY_TICKET_SEPOLIA_ADDRESS.to_string(),
+                status: TicketStatus::Signed,
+            }),
+        }
+    }
+
+    fn legacy_contract() -> Contract {
+        let mut ctx = context("native-credit.testnet", 0);
+        ctx.current_account_id("native-credit.testnet".parse().unwrap());
+        testing_env!(ctx.build());
+        let mut contract = Contract::new(config("native-credit.testnet".parse().unwrap()));
+        contract
+            .positions
+            .insert(LEGACY_TICKET_POSITION_ID, legacy_position());
+        contract
+    }
+
+    #[test]
+    fn legacy_signed_ticket_migration_is_one_time() {
+        let mut contract = legacy_contract();
+        contract.migrate_legacy_ticket();
+        assert_eq!(
+            contract
+                .get_position(LEGACY_TICKET_POSITION_ID)
+                .liquidation_ticket
+                .expect("ticket")
+                .status,
+            TicketStatus::Settled
+        );
+        assert_eq!(
+            env::storage_read(LEGACY_TICKET_MIGRATION_KEY),
+            Some(b"1".to_vec())
+        );
+        let again = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            contract.migrate_legacy_ticket();
+        }));
+        assert!(again.is_err());
+    }
+
+    #[test]
+    fn legacy_ticket_migration_rejects_modified_ticket() {
+        let mut contract = legacy_contract();
+        let mut position = contract
+            .positions
+            .get(&LEGACY_TICKET_POSITION_ID)
+            .cloned()
+            .expect("position");
+        position
+            .liquidation_ticket
+            .as_mut()
+            .expect("ticket")
+            .repay_usdc = U128(LEGACY_TICKET_REPAY_USDC + 1);
+        contract
+            .positions
+            .insert(LEGACY_TICKET_POSITION_ID, position);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            contract.migrate_legacy_ticket();
+        }));
+        assert!(result.is_err());
+        assert_eq!(
+            contract
+                .get_position(LEGACY_TICKET_POSITION_ID)
+                .liquidation_ticket
+                .expect("ticket")
+                .status,
+            TicketStatus::Signed
+        );
     }
 
     #[test]

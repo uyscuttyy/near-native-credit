@@ -8,14 +8,13 @@ Deployment status: not deployed. Live state was not modified.
 
 **No production deployment yet.** Phase 1 code and local tests are complete, but the following gates remain:
 
-1. Commit and review the changes.
-2. Add and test a one-time private legacy-ticket migration for the existing v2 `Signed` ticket.
-3. Snapshot/export live contract state.
-4. Build and review the production wasm.
-5. Upgrade/redeploy in a controlled window.
-6. Reconcile the existing live v2 withdrawal.
-7. Run the legacy-ticket migration, then move the guardian off v1.
-8. Re-run the live two-provider proof path.
+1. Review the committed changes.
+2. Snapshot/export live contract state.
+3. Build and review the production wasm.
+4. Upgrade/redeploy in a controlled window.
+5. Reconcile the existing live v2 withdrawal.
+6. Run the legacy-ticket migration, then move the guardian off v1.
+7. Re-run the live two-provider proof path.
 
 The live v2 ticket is still `Signed`, and the live v1 position is still `NeedsReview`. The code changes do not retroactively repair persisted state.
 
@@ -57,7 +56,7 @@ Do not run `clear_stuck_proof` on either position without checking whether a sig
   - `Refunded`
 - Existing state can be read by the new code without a field migration.
 - Old code cannot safely read tickets that use the new refund variants. Do not roll back after new statuses are written unless state is restored from a snapshot.
-- There is no state migration function in this phase.
+- The only migration is the one-time private `migrate_legacy_ticket` path. It uses a separate storage key, changes no serialized fields, and only mutates the exact persisted v2 ticket after strict state checks.
 
 ### Initialization requirements
 
@@ -74,8 +73,9 @@ For a fresh deployment, verify:
 
 ### Artifact
 
-- `cargo check --target wasm32-unknown-unknown` passed.
-- A production wasm build and byte-for-byte review are still required.
+- `cargo build --target wasm32-unknown-unknown --release` passed.
+- The candidate wasm is `640731` bytes, sha256 `eb38435bc056d835543787bf9f3c89ee32e2330f2f0f97a17a40dc5130a2c124`, code hash `GqCZxy7v4eZp1HH8sdqpMgpbENxUVtMscabZQp4oEE6f`.
+- It has not been deployed; review and deployment approval are still required.
 - The native-target `cargo check` command is not usable because of near-sdk guidance.
 
 ## Runbooks
@@ -107,6 +107,14 @@ If the ticket is `Refunding`, wait for the callback. Do not start a second refun
 3. Confirm the timeout: `requested_block + 100_000 < current block`.
 4. Owner or guardian calls `clear_stuck_proof(position_id)`.
 5. If the operation is an active unsigned liquidation, the contract refunds the liquidator.
+
+### 3a. Legacy v2 signed ticket after withdrawal confirmation
+
+1. Confirm position `1` is `Idle`, debt is `0`, and no pending operation exists.
+2. Confirm the ticket is `Signed` with liquidator `borrower.native-credit.testnet`, collateral `36_000_000_000_000_000` wei, repay `10_000_000`, and destination `0xec29df4cf529cf8be4fbc8380cf732cff82389bc`.
+3. Call `migrate_legacy_ticket()` from the contract account; the method is private and one-time.
+4. Confirm `legacy_ticket_migrated` and ticket status `Settled`.
+5. Do not run it before the pending withdrawal is confirmed; it rejects non-idle positions and pending operations.
 
 ### 4. Proof provider quorum failure
 
@@ -145,9 +153,9 @@ If the ticket is `Refunding`, wait for the callback. Do not start a second refun
 ## Go/no-go checklist
 
 - [ ] Changes committed and reviewed.
-- [ ] Legacy-ticket migration implemented and tested.
+- [x] Legacy-ticket migration implemented and tested.
 - [ ] Live state exported and backed up.
-- [ ] Production wasm built and reviewed.
+- [ ] Production wasm built and deployed after review.
 - [ ] Deployment/upgrade script prepared and dry-run.
 - [ ] Two independent Sepolia providers validated.
 - [ ] Live v2 withdrawal reconciled with a finality proof.

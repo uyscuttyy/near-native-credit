@@ -8,20 +8,20 @@ Result: all recorded local tests pass; no deployment or live transaction was per
 
 | Suite | Tests | Result |
 |---|---:|---|
-| Contract unit (`--lib`) | 43 | Pass |
+| Contract unit (`--lib`) | 45 | Pass |
 | Contract local E2E | 6 | Pass |
 | Relayer | 26 | Pass |
 | Keeper | 8 | Pass |
 | Liquidator | 12 | Pass |
 | Oracle | 4 | Pass |
 | Watcher | 16 | Pass |
-| **Total** | **115** | **Pass** |
+| **Total** | **117** | **Pass** |
 
 Static checks:
 
 - `cargo fmt --all -- --check`: pass.
 - `cargo clippy -p native-credit --all-targets -- -D warnings`: pass.
-- `cargo check -p native-credit --target wasm32-unknown-unknown`: pass.
+- `cargo build -p native-credit --target wasm32-unknown-unknown --release`: pass.
 
 ## Commands
 
@@ -33,7 +33,7 @@ cargo test -p native-credit --lib
 cargo test -p native-credit --test local_e2e
 cargo fmt --all -- --check
 cargo clippy -p native-credit --all-targets -- -D warnings
-cargo check -p native-credit --target wasm32-unknown-unknown
+cargo build -p native-credit --target wasm32-unknown-unknown --release
 ```
 
 Agents:
@@ -50,7 +50,7 @@ cd agents/watcher && npm test
 
 ### Unit tests
 
-The 43 unit tests cover:
+The 45 unit tests cover:
 
 - initialization, storage deposit, and config validation;
 - chain-id typo rejection (`1115711` vs `11155111`);
@@ -61,7 +61,8 @@ The 43 unit tests cover:
 - transfer of idle and terminal-ticket positions;
 - liquidation math, penalty capping, max repay, and token conversion;
 - proof/tamper vectors, EIP-1559 hashing, EOA detection, and signature recovery;
-- risk-off behavior and deployed gas-limit controls.
+- risk-off behavior and deployed gas-limit controls;
+- one-time legacy `Signed` ticket migration success and strict-state rejection.
 
 ### Local E2E tests
 
