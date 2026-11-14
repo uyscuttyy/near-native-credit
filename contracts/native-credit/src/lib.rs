@@ -20,6 +20,7 @@ const MAX_BLOCK_HASH_LEN: usize = 33;
 // a buffer above that. The deployed v2 contract still uses 60,000 and can only
 // withdraw to an existing EOA.
 const MIN_WITHDRAWAL_GAS_LIMIT: u64 = 250_000;
+const SEPOLIA_CHAIN_ID: u64 = 11_155_111;
 
 #[derive(BorshStorageKey)]
 #[near(serializers = [borsh])]
@@ -126,6 +127,9 @@ pub enum TicketStatus {
     Signed,
     Settled,
     Cancelled,
+    RefundPending,
+    Refunding,
+    Refunded,
 }
 
 #[near(serializers = [borsh, json])]
@@ -191,11 +195,17 @@ impl Contract {
             config.oracle_threshold as usize <= config.oracle_keys.len(),
             "oracle threshold too high"
         );
-        for key in &config.oracle_keys {
+        for (index, key) in config.oracle_keys.iter().enumerate() {
             require!(
                 key.curve_type() == CurveType::ED25519,
                 "oracle key not ed25519"
             );
+            for previous in &config.oracle_keys[..index] {
+                require!(
+                    previous.as_bytes() != key.as_bytes(),
+                    "duplicate oracle key"
+                );
+            }
         }
         require!(
             config.gas_limit >= MIN_WITHDRAWAL_GAS_LIMIT
@@ -203,7 +213,7 @@ impl Contract {
                 && config.max_priority_fee_per_gas.0 <= config.max_fee_per_gas.0,
             "invalid gas config"
         );
-        require!(config.chain_id > 0, "invalid chain id");
+        require!(config.chain_id == SEPOLIA_CHAIN_ID, "invalid chain id");
         require!(
             config.min_borrow_usdc.0 > 0 && config.min_withdrawal_wei.0 > config.max_gas_wei(),
             "invalid minimum amount"
@@ -263,7 +273,14 @@ impl Contract {
                 && position.pending_borrow.is_none(),
             "pending operation"
         );
-        require!(position.liquidation_ticket.is_none(), "ticket exists");
+        require!(
+            position
+                .liquidation_ticket
+                .as_ref()
+                .map(|ticket| !ticket_is_active(ticket))
+                .unwrap_or(true),
+            "active ticket exists"
+        );
         position.owner = new_owner;
         self.positions.insert(position_id, position);
     }
@@ -338,7 +355,7 @@ impl Contract {
             requested_block: env::block_height(),
         });
         self.positions.insert(position_id, position);
-        self.request_block_hash(position_id, fields.number);
+        self.request_block_hash(position_id, fields.number, header_hash);
     }
 
     pub fn borrow(&mut self, position_id: u64, amount: U128) {
@@ -492,10 +509,10 @@ impl Contract {
         let mut position = self.positions.get(&position_id).cloned().expect("position");
         require!(
             position.status == PositionStatus::WithdrawalPending
-                || position.status == PositionStatus::LiquidationPending,
+                || position.status == PositionStatus::LiquidationPending
+                || position.status == PositionStatus::NeedsReview,
             "no pending withdrawal"
         );
-        require!(position.pending_deposit.is_none(), "pending proof");
         require!(
             position
                 .pending_withdrawal
@@ -517,6 +534,16 @@ impl Contract {
             "nonce did not advance"
         );
         let header_hash = crypto::keccak256(&header_rlp);
+        position.status = if position
+            .liquidation_ticket
+            .as_ref()
+            .map(ticket_is_active)
+            .unwrap_or(false)
+        {
+            PositionStatus::LiquidationPending
+        } else {
+            PositionStatus::WithdrawalPending
+        };
         position.pending_deposit = Some(PendingProof {
             header_hash,
             header_number: fields.number,
@@ -526,17 +553,25 @@ impl Contract {
             requested_block: env::block_height(),
         });
         self.positions.insert(position_id, position);
-        self.request_block_hash(position_id, fields.number);
+        self.request_block_hash(position_id, fields.number, header_hash);
     }
 
     #[private]
-    pub fn on_sign(&mut self, position_id: u64) {
+    pub fn on_sign(&mut self, position_id: u64, signing_hash: String) {
         let Some(mut position) = self.positions.get(&position_id).cloned() else {
             return;
         };
         let Some(mut pending) = position.pending_withdrawal.clone() else {
             return;
         };
+        let Ok(expected) = hex::decode(signing_hash) else {
+            env::log_str("stale_sign_callback");
+            return;
+        };
+        if expected.as_slice() != pending.signing_hash {
+            env::log_str("stale_sign_callback");
+            return;
+        }
         let Ok(bytes) = env::promise_result_checked(0, MAX_SIGN_RESPONSE_LEN) else {
             self.cancel_withdrawal(&mut position, position_id);
             return;
@@ -566,6 +601,18 @@ impl Contract {
             self.cancel_withdrawal(&mut position, position_id);
             return;
         }
+        if pending.kind == WithdrawalKind::Liquidation {
+            let valid_ticket = position
+                .liquidation_ticket
+                .as_ref()
+                .map(|ticket| ticket.status == TicketStatus::PendingSignature)
+                .unwrap_or(false);
+            if !valid_ticket {
+                env::log_str("liquidation_ticket_not_pending");
+                self.cancel_withdrawal(&mut position, position_id);
+                return;
+            }
+        }
         let to = crypto::parse_address_hex(&pending.to).expect("bad address");
         let params = crypto::TxParams {
             chain_id: self.config.chain_id,
@@ -580,26 +627,38 @@ impl Contract {
         let raw_tx = crypto::assemble_signed_tx(&params, normalized_recovery_id, &r, &normalized_s);
         pending.raw_tx = Some(raw_tx.clone());
         pending.tx_hash = Some(crypto::keccak256(&raw_tx));
+        let kind = pending.kind.clone();
         position.pending_withdrawal = Some(pending);
-        if let Some(ticket) = position.liquidation_ticket.as_mut() {
-            ticket.status = TicketStatus::Signed;
+        if kind == WithdrawalKind::Liquidation {
+            if let Some(ticket) = position.liquidation_ticket.as_mut() {
+                ticket.status = TicketStatus::Signed;
+            }
         }
         self.positions.insert(position_id, position);
+        env::log_str("withdrawal_signed");
     }
 
     #[private]
-    pub fn on_block_hash(&mut self, position_id: u64) {
+    pub fn on_block_hash(&mut self, position_id: u64, header_hash: String) {
         let Some(mut position) = self.positions.get(&position_id).cloned() else {
             return;
         };
         let Some(pending) = position.pending_deposit.clone() else {
             return;
         };
+        let Ok(expected) = hex::decode(header_hash) else {
+            env::log_str("stale_block_hash_callback");
+            return;
+        };
+        if expected.as_slice() != pending.header_hash {
+            env::log_str("stale_block_hash_callback");
+            return;
+        }
         let returned = env::promise_result_checked(0, MAX_BLOCK_HASH_LEN)
             .ok()
             .and_then(|bytes| decode_optional_hash(&bytes));
         if returned != Some(pending.header_hash) {
-            position.pending_deposit = None;
+            position.status = PositionStatus::NeedsReview;
             self.positions.insert(position_id, position);
             env::log_str("block_hash_safe mismatch or failure");
             return;
@@ -617,11 +676,14 @@ impl Contract {
                         .total_collateral_wei
                         .checked_add(delta)
                         .expect("total collateral");
+                    self.positions.insert(position_id, position);
+                    env::log_str("deposit_credited");
                 } else {
                     position.status = PositionStatus::NeedsReview;
                     position.pending_deposit = None;
+                    self.positions.insert(position_id, position);
+                    env::log_str("deposit_balance_decreased");
                 }
-                self.positions.insert(position_id, position);
             }
             ProofKind::Withdrawal => {
                 let Some(withdrawal) = position.pending_withdrawal.clone() else {
@@ -634,6 +696,7 @@ impl Contract {
                     position.status = PositionStatus::NeedsReview;
                     position.pending_deposit = None;
                     self.positions.insert(position_id, position);
+                    env::log_str("withdrawal_balance_increased");
                     return;
                 }
                 let delta = old_balance - pending.new_balance.0;
@@ -657,9 +720,7 @@ impl Contract {
 
                 if success {
                     if withdrawal.kind == WithdrawalKind::Liquidation {
-                        if let Some(ticket) = position.liquidation_ticket.as_mut() {
-                            ticket.status = TicketStatus::Settled;
-                        }
+                        self.settle_liquidation(&mut position, old_balance);
                     }
                     position.status = if position.debt_usdc.0 == 0 && position.collateral_wei.0 == 0
                     {
@@ -667,17 +728,63 @@ impl Contract {
                     } else {
                         PositionStatus::Idle
                     };
+                    self.positions.insert(position_id, position);
+                    env::log_str("withdrawal_succeeded");
                 } else if failed {
-                    if let Some(ticket) = position.liquidation_ticket.as_mut() {
-                        ticket.status = TicketStatus::Cancelled;
-                    }
+                    let refund = if withdrawal.kind == WithdrawalKind::Liquidation {
+                        self.prepare_liquidation_refund(&mut position)
+                    } else {
+                        None
+                    };
                     position.status = PositionStatus::Idle;
+                    self.positions.insert(position_id, position);
+                    if let Some((liquidator, amount)) = refund {
+                        self.request_liquidation_refund(position_id, liquidator, amount);
+                    }
+                    env::log_str("withdrawal_failed");
                 } else {
                     position.status = PositionStatus::NeedsReview;
+                    self.positions.insert(position_id, position);
+                    env::log_str("withdrawal_delta_out_of_bounds");
                 }
-                self.positions.insert(position_id, position);
             }
         }
+    }
+
+    #[private]
+    pub fn on_liquidation_refund(&mut self, position_id: u64, amount: U128) {
+        let Some(mut position) = self.positions.get(&position_id).cloned() else {
+            return;
+        };
+        let Some(ticket) = position.liquidation_ticket.as_mut() else {
+            return;
+        };
+        if ticket.status != TicketStatus::Refunding || ticket.repay_usdc != amount {
+            env::log_str("stale_liquidation_refund_callback");
+            return;
+        }
+        if env::promise_result_checked(0, 1_024).is_ok() {
+            ticket.status = TicketStatus::Refunded;
+            env::log_str("liquidation_refunded");
+        } else {
+            ticket.status = TicketStatus::RefundPending;
+            env::log_str("liquidation_refund_failed");
+        }
+        self.positions.insert(position_id, position);
+    }
+
+    pub fn refund_liquidation(&mut self, position_id: u64) {
+        let mut position = self.positions.get(&position_id).cloned().expect("position");
+        let ticket = position.liquidation_ticket.as_mut().expect("ticket");
+        require!(
+            ticket.status == TicketStatus::RefundPending,
+            "no refund pending"
+        );
+        ticket.status = TicketStatus::Refunding;
+        let liquidator = ticket.liquidator.clone();
+        let amount = ticket.repay_usdc.0;
+        self.positions.insert(position_id, position);
+        self.request_liquidation_refund(position_id, liquidator, amount);
     }
 
     #[payable]
@@ -731,6 +838,14 @@ impl Contract {
                 {
                     return PromiseOrValue::Value(amount);
                 }
+                if position
+                    .liquidation_ticket
+                    .as_ref()
+                    .map(ticket_is_active)
+                    .unwrap_or(false)
+                {
+                    return PromiseOrValue::Value(amount);
+                }
                 self.accrue(&mut position);
                 let price = self.fresh_price();
                 let collateral_usd =
@@ -750,26 +865,40 @@ impl Contract {
                 let Some(to) = self.sepolia_addresses.get(&sender_id).cloned() else {
                     return PromiseOrValue::Value(amount);
                 };
-                let accepted = amount.0.min(position.debt_usdc.0);
+                let max_repay_usd = math::max_liquidation_repay_usd(
+                    collateral_usd,
+                    self.config.liquidation_penalty_bps,
+                )
+                .expect("math");
+                let max_repay_usdc =
+                    math::token_value(max_repay_usd, price.usdc_usd_1e8.0, 6).expect("math");
+                let debt = position.debt_usdc.0;
+                let accepted = amount.0.min(debt).min(max_repay_usdc);
                 if accepted == 0 {
                     return PromiseOrValue::Value(amount);
                 }
-                let repay_usd = math::usd_value(accepted, price.usdc_usd_1e8.0, 6).expect("math");
-                let seized = math::liquidation_collateral_wei(
-                    repay_usd,
-                    self.config.liquidation_penalty_bps,
-                    price.eth_usd_1e8.0,
-                    position.collateral_wei.0,
-                )
-                .expect("math");
+                let full_liquidation = debt > accepted && accepted == max_repay_usdc;
+                let withdrawable = position
+                    .collateral_wei
+                    .0
+                    .saturating_sub(self.config.max_gas_wei());
+                let seized = if full_liquidation {
+                    withdrawable
+                } else {
+                    let repay_usd =
+                        math::usd_value(accepted, price.usdc_usd_1e8.0, 6).expect("math");
+                    math::liquidation_collateral_wei(
+                        repay_usd,
+                        self.config.liquidation_penalty_bps,
+                        price.eth_usd_1e8.0,
+                        position.collateral_wei.0,
+                    )
+                    .expect("math")
+                    .min(withdrawable)
+                };
                 if seized == 0 {
                     return PromiseOrValue::Value(amount);
                 }
-                position.debt_usdc = U128(position.debt_usdc.0 - accepted);
-                self.total_debt_usdc = self
-                    .total_debt_usdc
-                    .checked_sub(accepted)
-                    .expect("total debt");
                 position.liquidation_ticket = Some(LiquidationTicket {
                     liquidator: sender_id.clone(),
                     collateral_wei: U128(seized),
@@ -779,6 +908,16 @@ impl Contract {
                 });
                 self.positions.insert(position_id, position);
                 self.request_liquidation_withdrawal(position_id, seized, &to);
+                env::log_str(
+                    &json!({
+                        "event": "liquidation_requested",
+                        "position_id": position_id,
+                        "accepted_usdc": accepted,
+                        "seized_wei": seized,
+                        "full_liquidation": full_liquidation
+                    })
+                    .to_string(),
+                );
                 PromiseOrValue::Value(U128(amount.0 - accepted))
             }
             _ => PromiseOrValue::Value(amount),
@@ -794,7 +933,7 @@ impl Contract {
             "invalid price"
         );
         let now = env::block_timestamp() / 1_000_000_000;
-        require!(price.timestamp <= now.saturating_add(60), "future price");
+        require!(price.timestamp <= now, "future price");
         require!(
             price
                 .timestamp
@@ -804,7 +943,15 @@ impl Contract {
         );
         let message = price_message(&price);
         let mut valid = 0u8;
+        let mut seen_keys: Vec<Vec<u8>> = Vec::new();
         for (index, key) in self.config.oracle_keys.iter().enumerate() {
+            if seen_keys
+                .iter()
+                .any(|seen| seen.as_slice() == key.as_bytes())
+            {
+                continue;
+            }
+            seen_keys.push(key.as_bytes().to_vec());
             let Some(signature_hex) = signatures.get(index) else {
                 continue;
             };
@@ -867,10 +1014,49 @@ impl Contract {
             position.status == PositionStatus::NeedsReview,
             "not in review"
         );
+        let caller = env::predecessor_account_id();
         require!(
-            env::predecessor_account_id() == self.config.owner,
-            "owner only"
+            caller == self.config.owner || caller == self.config.guardian,
+            "not authorized"
         );
+        if let Some(withdrawal) = position.pending_withdrawal.clone() {
+            require!(withdrawal.raw_tx.is_none(), "signed payout requires proof");
+            require!(
+                withdrawal.requested_block + 100_000 < env::block_height(),
+                "wait for timeout"
+            );
+            let refund = if withdrawal.kind == WithdrawalKind::Liquidation {
+                self.prepare_liquidation_refund(&mut position)
+            } else {
+                None
+            };
+            position.pending_deposit = None;
+            position.pending_withdrawal = None;
+            position.status = PositionStatus::Idle;
+            self.positions.insert(position_id, position);
+            if let Some((liquidator, amount)) = refund {
+                self.request_liquidation_refund(position_id, liquidator, amount);
+            }
+            env::log_str("stuck_proof_cleared");
+            return;
+        }
+        if let Some(ticket) = position.liquidation_ticket.as_ref() {
+            if ticket_is_active(ticket) {
+                require!(
+                    ticket.status == TicketStatus::PendingSignature,
+                    "ticket requires reconciliation"
+                );
+                let refund = self.prepare_liquidation_refund(&mut position);
+                position.pending_deposit = None;
+                position.status = PositionStatus::Idle;
+                self.positions.insert(position_id, position);
+                if let Some((liquidator, amount)) = refund {
+                    self.request_liquidation_refund(position_id, liquidator, amount);
+                }
+                env::log_str("stuck_proof_cleared");
+                return;
+            }
+        }
         require!(
             position
                 .pending_deposit
@@ -880,9 +1066,9 @@ impl Contract {
             "wait for timeout"
         );
         position.pending_deposit = None;
-        position.pending_withdrawal = None;
         position.status = PositionStatus::Idle;
         self.positions.insert(position_id, position);
+        env::log_str("stuck_proof_cleared");
     }
 
     pub fn get_config(&self) -> Config {
@@ -916,6 +1102,15 @@ impl Contract {
         let Some(price) = self.price.clone() else {
             return U128(0);
         };
+        let now = env::block_timestamp() / 1_000_000_000;
+        if price.timestamp > now
+            || price
+                .timestamp
+                .saturating_add(self.config.max_oracle_age_secs)
+                < now
+        {
+            return U128(0);
+        }
         let Some(collateral_usd) =
             math::usd_value(position.collateral_wei.0, price.eth_usd_1e8.0, 18).ok()
         else {
@@ -955,15 +1150,21 @@ impl Contract {
         ));
     }
 
-    fn request_block_hash(&self, position_id: u64, block_number: u64) {
+    fn request_block_hash(&self, position_id: u64, block_number: u64, header_hash: [u8; 32]) {
         let promise = Promise::new(self.config.light_client.clone()).function_call(
             "block_hash_safe".to_string(),
             block_number.to_le_bytes().to_vec(),
             NearToken::from_yoctonear(0),
             Gas::from_tgas(15),
         );
-        let _ =
-            promise.then(self.callback("on_block_hash", json!({"position_id": position_id}), 40));
+        let _ = promise.then(self.callback(
+            "on_block_hash",
+            json!({
+                "position_id": position_id,
+                "header_hash": hex::encode(header_hash)
+            }),
+            40,
+        ));
     }
 
     fn request_sign(&self, position_id: u64, signing_hash: [u8; 32]) {
@@ -981,7 +1182,34 @@ impl Contract {
             NearToken::from_yoctonear(ONE_YOCTO),
             Gas::from_tgas(30),
         );
-        let _ = promise.then(self.callback("on_sign", json!({"position_id": position_id}), 30));
+        let _ = promise.then(self.callback(
+            "on_sign",
+            json!({
+                "position_id": position_id,
+                "signing_hash": hex::encode(signing_hash)
+            }),
+            30,
+        ));
+    }
+
+    fn request_liquidation_refund(&self, position_id: u64, liquidator: AccountId, amount: u128) {
+        let args = serde_json::to_vec(&json!({
+            "receiver_id": liquidator,
+            "amount": U128(amount),
+            "memo": null
+        }))
+        .expect("json");
+        let promise = Promise::new(self.config.usdc.clone()).function_call(
+            "ft_transfer".to_string(),
+            args,
+            NearToken::from_yoctonear(ONE_YOCTO),
+            Gas::from_tgas(30),
+        );
+        let _ = promise.then(self.callback(
+            "on_liquidation_refund",
+            json!({"position_id": position_id, "amount": U128(amount)}),
+            20,
+        ));
     }
 
     fn request_liquidation_withdrawal(&mut self, position_id: u64, amount: u128, to: &str) {
@@ -1017,12 +1245,72 @@ impl Contract {
     }
 
     fn cancel_withdrawal(&mut self, position: &mut Position, position_id: u64) {
-        if let Some(ticket) = position.liquidation_ticket.as_mut() {
-            ticket.status = TicketStatus::Cancelled;
-        }
+        let refund = if position
+            .pending_withdrawal
+            .as_ref()
+            .map(|withdrawal| withdrawal.kind == WithdrawalKind::Liquidation)
+            .unwrap_or(false)
+        {
+            self.prepare_liquidation_refund(position)
+        } else {
+            None
+        };
         position.pending_withdrawal = None;
         position.status = PositionStatus::Idle;
         self.positions.insert(position_id, position.clone());
+        if let Some((liquidator, amount)) = refund {
+            self.request_liquidation_refund(position_id, liquidator, amount);
+        }
+    }
+
+    fn prepare_liquidation_refund(&mut self, position: &mut Position) -> Option<(AccountId, u128)> {
+        let ticket = position.liquidation_ticket.as_mut()?;
+        if !ticket_is_active(ticket) {
+            return None;
+        }
+        ticket.status = TicketStatus::Refunding;
+        Some((ticket.liquidator.clone(), ticket.repay_usdc.0))
+    }
+
+    fn settle_liquidation(&mut self, position: &mut Position, old_collateral: u128) -> u128 {
+        let Some(ticket) = position.liquidation_ticket.as_mut() else {
+            return 0;
+        };
+        if !matches!(
+            ticket.status,
+            TicketStatus::PendingSignature | TicketStatus::Signed
+        ) {
+            return 0;
+        }
+        let accepted = ticket.repay_usdc.0.min(position.debt_usdc.0);
+        let collateral_taken = ticket.collateral_wei.0.min(old_collateral);
+        let debt_after_repay = position.debt_usdc.0.saturating_sub(accepted);
+        let collateral_exhausted =
+            collateral_taken.saturating_add(self.config.max_gas_wei()) >= old_collateral;
+        let bad_debt = if collateral_exhausted && debt_after_repay > 0 {
+            debt_after_repay
+        } else {
+            0
+        };
+        position.debt_usdc = U128(debt_after_repay.saturating_sub(bad_debt));
+        self.total_debt_usdc = self
+            .total_debt_usdc
+            .checked_sub(accepted.saturating_add(bad_debt))
+            .expect("total debt");
+        self.total_bad_debt_usdc = self
+            .total_bad_debt_usdc
+            .checked_add(bad_debt)
+            .expect("bad debt");
+        ticket.status = TicketStatus::Settled;
+        env::log_str(
+            &json!({
+                "event": "liquidation_settled",
+                "accepted_usdc": accepted,
+                "bad_debt_usdc": bad_debt
+            })
+            .to_string(),
+        );
+        bad_debt
     }
 
     fn callback(&self, method: &str, args: serde_json::Value, tgas: u64) -> Promise {
@@ -1044,6 +1332,7 @@ impl Contract {
     fn fresh_price(&self) -> Price {
         let price = self.price.clone().expect("price not set");
         let now = env::block_timestamp() / 1_000_000_000;
+        require!(price.timestamp <= now, "future price");
         require!(
             price
                 .timestamp
@@ -1114,6 +1403,16 @@ struct AffinePoint {
 #[serde(crate = "near_sdk::serde")]
 struct Scalar {
     pub scalar: String,
+}
+
+fn ticket_is_active(ticket: &LiquidationTicket) -> bool {
+    matches!(
+        ticket.status,
+        TicketStatus::PendingSignature
+            | TicketStatus::Signed
+            | TicketStatus::RefundPending
+            | TicketStatus::Refunding
+    )
 }
 
 fn decode_optional_hash(bytes: &[u8]) -> Option<[u8; 32]> {
@@ -1273,7 +1572,13 @@ mod tests {
                 pending_deposit: None,
                 pending_withdrawal: None,
                 pending_borrow: None,
-                liquidation_ticket: None,
+                liquidation_ticket: Some(LiquidationTicket {
+                    liquidator: "liquidator.testnet".parse().unwrap(),
+                    collateral_wei: U128(1),
+                    repay_usdc: U128(1),
+                    sepolia_address: "0x0000000000000000000000000000000000000003".to_string(),
+                    status: TicketStatus::Settled,
+                }),
             },
         );
         contract.next_position_id = 2;
@@ -1513,7 +1818,7 @@ mod tests {
             Default::default(),
             vec![PromiseResult::Successful(result)],
         );
-        contract.on_block_hash(1);
+        contract.on_block_hash(1, hex::encode(pending.header_hash));
 
         let position = contract.get_position(1);
         assert_eq!(position.collateral_wei.0, 0x418c84296add147a);
@@ -1569,6 +1874,11 @@ mod tests {
             },
         );
         contract.record_deposit(1, header, proof);
+        let expected_hash = contract
+            .get_position(1)
+            .pending_deposit
+            .expect("pending proof")
+            .header_hash;
 
         let mut result = Vec::with_capacity(33);
         result.push(1);
@@ -1580,11 +1890,12 @@ mod tests {
             Default::default(),
             vec![PromiseResult::Successful(result)],
         );
-        contract.on_block_hash(1);
+        contract.on_block_hash(1, hex::encode(expected_hash));
 
         let position = contract.get_position(1);
         assert_eq!(position.collateral_wei.0, 0);
-        assert!(position.pending_deposit.is_none());
+        assert_eq!(position.status, PositionStatus::NeedsReview);
+        assert!(position.pending_deposit.is_some());
         assert_eq!(contract.total_collateral_wei, 0);
     }
 
@@ -1658,7 +1969,7 @@ mod tests {
             Default::default(),
             vec![PromiseResult::Successful(result)],
         );
-        contract.on_sign(1);
+        contract.on_sign(1, hex::encode(pending.signing_hash));
 
         let position = contract.get_position(1);
         assert_eq!(position.status, PositionStatus::WithdrawalPending);
@@ -1736,10 +2047,172 @@ mod tests {
             Default::default(),
             vec![PromiseResult::Successful(result)],
         );
-        contract.on_sign(1);
+        contract.on_sign(1, hex::encode(pending.signing_hash));
 
         let position = contract.get_position(1);
         assert_eq!(position.status, PositionStatus::Idle);
         assert!(position.pending_withdrawal.is_none());
+    }
+    #[test]
+    #[should_panic(expected = "invalid chain id")]
+    fn init_rejects_sepolia_chain_id_typo() {
+        let owner: AccountId = "owner.testnet".parse().unwrap();
+        let mut cfg = config(owner);
+        cfg.chain_id = 1_115_711;
+        testing_env!(context("owner.testnet", 0).build());
+        Contract::new(cfg);
+    }
+
+    #[test]
+    #[should_panic(expected = "duplicate oracle key")]
+    fn init_rejects_duplicate_oracle_keys() {
+        let owner: AccountId = "owner.testnet".parse().unwrap();
+        let mut cfg = config(owner);
+        let key = PublicKey::from_parts(CurveType::ED25519, vec![7u8; 32]).unwrap();
+        cfg.oracle_keys = vec![key.clone(), key];
+        cfg.oracle_threshold = 2;
+        testing_env!(context("owner.testnet", 0).build());
+        Contract::new(cfg);
+    }
+
+    #[test]
+    #[should_panic(expected = "future price")]
+    fn update_price_rejects_future_timestamp() {
+        let owner: AccountId = "owner.testnet".parse().unwrap();
+        testing_env!(context("owner.testnet", 0).build());
+        let mut contract = Contract::new(config(owner));
+        let now = env::block_timestamp() / 1_000_000_000;
+        contract.update_price(
+            Price {
+                eth_usd_1e8: U128(300_000_000_000),
+                usdc_usd_1e8: U128(100_000_000),
+                timestamp: now + 1,
+                sequence: 1,
+            },
+            vec![],
+        );
+    }
+
+    #[test]
+    fn stale_price_is_not_reported_as_healthy() {
+        let owner: AccountId = "owner.testnet".parse().unwrap();
+        testing_env!(context("owner.testnet", 0).build());
+        let mut contract = Contract::new(config(owner.clone()));
+        let now = env::block_timestamp() / 1_000_000_000;
+        contract.positions.insert(
+            1,
+            Position {
+                owner,
+                status: PositionStatus::Idle,
+                deposit_address: Some("0x0000000000000000000000000000000000000001".to_string()),
+                collateral_wei: U128(10u128.pow(18)),
+                last_verified_block: 100,
+                last_verified_nonce: 0,
+                debt_usdc: U128(0),
+                last_accrual_secs: now,
+                pending_deposit: None,
+                pending_withdrawal: None,
+                pending_borrow: None,
+                liquidation_ticket: None,
+            },
+        );
+        contract.price = Some(Price {
+            eth_usd_1e8: U128(300_000_000_000),
+            usdc_usd_1e8: U128(100_000_000),
+            timestamp: now.saturating_sub(301),
+            sequence: 1,
+        });
+        assert_eq!(contract.get_health(1).0, 0);
+        contract.price = Some(Price {
+            eth_usd_1e8: U128(300_000_000_000),
+            usdc_usd_1e8: U128(100_000_000),
+            timestamp: now,
+            sequence: 2,
+        });
+        assert_eq!(contract.get_health(1).0, u128::MAX);
+    }
+
+    #[test]
+    fn user_signature_does_not_overwrite_terminal_ticket() {
+        use k256::ecdsa::SigningKey;
+
+        let owner: AccountId = "alice.testnet".parse().unwrap();
+        let ctx = context("alice.testnet", 0);
+        testing_env!(ctx.build());
+        let mut contract = Contract::new(config(owner.clone()));
+        let now = env::block_timestamp() / 1_000_000_000;
+        let signing_key = SigningKey::from_slice(&[9u8; 32]).unwrap();
+        let point = signing_key.verifying_key().to_encoded_point(false);
+        let hash = crypto::keccak256(&point.as_bytes()[1..]);
+        let mut signer_address = [0u8; 20];
+        signer_address.copy_from_slice(&hash[12..]);
+        contract.sepolia_addresses.insert(
+            owner.clone(),
+            "0x0000000000000000000000000000000000000002".to_string(),
+        );
+        contract.price = Some(Price {
+            eth_usd_1e8: U128(300_000_000_000),
+            usdc_usd_1e8: U128(100_000_000),
+            timestamp: now,
+            sequence: 1,
+        });
+        contract.positions.insert(
+            1,
+            Position {
+                owner: owner.clone(),
+                status: PositionStatus::Idle,
+                deposit_address: Some(crypto::address_hex(&signer_address)),
+                collateral_wei: U128(10u128.pow(18)),
+                last_verified_block: 100,
+                last_verified_nonce: 0,
+                debt_usdc: U128(0),
+                last_accrual_secs: now,
+                pending_deposit: None,
+                pending_withdrawal: None,
+                pending_borrow: None,
+                liquidation_ticket: Some(LiquidationTicket {
+                    liquidator: "liquidator.testnet".parse().unwrap(),
+                    collateral_wei: U128(1),
+                    repay_usdc: U128(1),
+                    sepolia_address: "0x0000000000000000000000000000000000000003".to_string(),
+                    status: TicketStatus::Settled,
+                }),
+            },
+        );
+        contract.total_collateral_wei = 10u128.pow(18);
+        contract.withdraw(1, U128(10u128.pow(16)));
+        let pending = contract
+            .get_position(1)
+            .pending_withdrawal
+            .expect("pending withdrawal");
+        let (signature, recovery_id) = signing_key
+            .sign_prehash_recoverable(&pending.signing_hash)
+            .unwrap();
+        let bytes = signature.to_bytes();
+        let recovery = recovery_id.to_byte();
+        let prefix = if recovery % 2 == 0 { 2 } else { 3 };
+        let response = json!({
+            "big_r": { "affine_point": format!("0x{:02x}{}", prefix, hex::encode(&bytes[..32])) },
+            "s": { "scalar": format!("0x{}", hex::encode(&bytes[32..])) },
+            "recovery_id": recovery,
+        });
+        testing_env!(
+            ctx.build(),
+            near_sdk::test_vm_config(),
+            near_sdk::RuntimeFeesConfig::test(),
+            Default::default(),
+            vec![PromiseResult::Successful(
+                serde_json::to_vec(&response).unwrap()
+            )],
+        );
+        contract.on_sign(1, hex::encode(pending.signing_hash));
+        assert_eq!(
+            contract
+                .get_position(1)
+                .liquidation_ticket
+                .expect("ticket")
+                .status,
+            TicketStatus::Settled
+        );
     }
 }

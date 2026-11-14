@@ -63,6 +63,31 @@ pub fn liquidation_collateral_wei(
     Ok(seized_wei.min(collateral_wei))
 }
 
+pub fn max_liquidation_repay_usd(
+    collateral_usd: u128,
+    penalty_bps: u16,
+) -> Result<u128, MathError> {
+    collateral_usd
+        .checked_mul(BPS)
+        .ok_or(MathError::Overflow)?
+        .checked_div(
+            BPS.checked_add(penalty_bps as u128)
+                .ok_or(MathError::Overflow)?,
+        )
+        .ok_or(MathError::DivisionByZero)
+}
+
+pub fn token_value(usd_1e8: u128, price_1e8: u128, decimals: u8) -> Result<u128, MathError> {
+    let scale = 10u128
+        .checked_pow(decimals as u32)
+        .ok_or(MathError::Overflow)?;
+    usd_1e8
+        .checked_mul(scale)
+        .ok_or(MathError::Overflow)?
+        .checked_div(price_1e8)
+        .ok_or(MathError::DivisionByZero)
+}
+
 pub fn accrue_interest(
     debt: u128,
     annual_rate_bps: u16,
@@ -128,6 +153,29 @@ mod tests {
         assert_eq!(seized, 360_000_000_000_000);
         let capped = liquidation_collateral_wei(100_000_000, 800, 300_000_000_000, 1).unwrap();
         assert_eq!(capped, 1);
+    }
+
+    #[test]
+    fn max_liquidation_repay_leaves_room_for_penalty() {
+        assert_eq!(
+            max_liquidation_repay_usd(100_000_000, 800).unwrap(),
+            92_592_592
+        );
+        assert_eq!(
+            max_liquidation_repay_usd(108_000_000, 800).unwrap(),
+            100_000_000
+        );
+    }
+
+    #[test]
+    fn token_value_converts_usd_back_to_base_units() {
+        assert_eq!(token_value(100_000_000, 100_000_000, 6).unwrap(), 1_000_000);
+        assert_eq!(
+            token_value(300_000_000_000, 300_000_000_000, 18).unwrap(),
+            10u128.pow(18)
+        );
+        assert_eq!(token_value(1, 100_000_000, 6).unwrap(), 0);
+        assert_eq!(token_value(1, 0, 6), Err(MathError::DivisionByZero));
     }
 
     #[test]

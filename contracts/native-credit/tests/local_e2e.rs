@@ -1,7 +1,7 @@
 use ed25519_dalek::{Signer as _, SigningKey as EdSigningKey};
 use k256::ecdsa::SigningKey;
 use native_credit::crypto::{address_hex, keccak256, EMPTY_CODE_HASH, EMPTY_TRIE_ROOT};
-use native_credit::{Config, Contract, PositionStatus, Price};
+use native_credit::{Config, Contract, PositionStatus, Price, TicketStatus};
 use near_sdk::json_types::U128;
 use near_sdk::test_utils::VMContextBuilder;
 use near_sdk::{testing_env, AccountId, CurveType, NearToken, PromiseResult, PublicKey};
@@ -195,7 +195,7 @@ fn bootstrap(
         context(CONTRACT, 0, 5, NOW_SECS),
         vec![PromiseResult::Successful(hash_result(&header_hash))],
     );
-    contract.on_block_hash(1);
+    contract.on_block_hash(1, hex::encode(header_hash));
     assert_eq!(contract.get_position(1).collateral_wei.0, COLLATERAL);
 
     set_env(context(OWNER, 0, 6, NOW_SECS), vec![]);
@@ -232,7 +232,7 @@ fn sign_withdrawal(contract: &mut Contract, owner_key: &SigningKey) {
             serde_json::to_vec(&response).unwrap(),
         )],
     );
-    contract.on_sign(1);
+    contract.on_sign(1, hex::encode(pending.signing_hash));
     let pending = contract
         .get_position(1)
         .pending_withdrawal
@@ -271,7 +271,7 @@ fn local_e2e_deposit_borrow_repay_withdraw_confirm() {
         context(CONTRACT, 0, 12, NOW_SECS),
         vec![PromiseResult::Successful(hash_result(&header_hash))],
     );
-    contract.on_block_hash(1);
+    contract.on_block_hash(1, hex::encode(header_hash));
 
     let position = contract.get_position(1);
     assert_eq!(position.status, PositionStatus::Idle);
@@ -298,7 +298,8 @@ fn local_e2e_liquidation_repays_debt_and_settles_ticket() {
         json!({"action": "liquidate", "position_id": 1}).to_string(),
     );
     assert!(matches!(refund, near_sdk::PromiseOrValue::Value(U128(0))));
-    assert_eq!(contract.get_position(1).debt_usdc.0, 0);
+    assert_eq!(contract.get_position(1).debt_usdc.0, 4_400_000);
+    assert_eq!(contract.total_debt_usdc, 4_400_000);
     let ticket = contract
         .get_position(1)
         .liquidation_ticket
@@ -329,7 +330,7 @@ fn local_e2e_liquidation_repays_debt_and_settles_ticket() {
         context(CONTRACT, 0, 13, NOW_SECS),
         vec![PromiseResult::Successful(hash_result(&header_hash))],
     );
-    contract.on_block_hash(1);
+    contract.on_block_hash(1, hex::encode(header_hash));
 
     let position = contract.get_position(1);
     assert_eq!(position.status, PositionStatus::Idle);
@@ -339,4 +340,244 @@ fn local_e2e_liquidation_repays_debt_and_settles_ticket() {
         position.liquidation_ticket.expect("ticket").status,
         native_credit::TicketStatus::Settled
     );
+}
+
+#[test]
+fn local_e2e_liquidation_signature_failure_refunds_liquidator() {
+    let (mut contract, _owner_key, _address, oracle) = bootstrap(300_000_000_000, 4_400_000);
+
+    set_env(context(OWNER, 0, 8, NOW_SECS), vec![]);
+    publish_price(&mut contract, &oracle, 10_000_000_000, 2);
+
+    set_env(context(LIQUIDATOR, 0, 9, NOW_SECS), vec![]);
+    contract.register_sepolia_address("0x0000000000000000000000000000000000000003".to_string());
+
+    set_env(context(USDC, 0, 10, NOW_SECS), vec![]);
+    let refund = contract.ft_on_transfer(
+        account(LIQUIDATOR),
+        U128(4_400_000),
+        json!({"action": "liquidate", "position_id": 1}).to_string(),
+    );
+    assert!(matches!(refund, near_sdk::PromiseOrValue::Value(U128(0))));
+    let pending = contract
+        .get_position(1)
+        .pending_withdrawal
+        .expect("pending liquidation");
+    assert_eq!(contract.get_position(1).debt_usdc.0, 4_400_000);
+
+    set_env(
+        context(CONTRACT, 0, 11, NOW_SECS),
+        vec![PromiseResult::Failed],
+    );
+    contract.on_sign(1, hex::encode(pending.signing_hash));
+
+    let position = contract.get_position(1);
+    assert_eq!(position.status, PositionStatus::Idle);
+    assert!(position.pending_withdrawal.is_none());
+    assert_eq!(position.debt_usdc.0, 4_400_000);
+    assert_eq!(contract.total_debt_usdc, 4_400_000);
+    assert_eq!(
+        position.liquidation_ticket.expect("ticket").status,
+        TicketStatus::Refunding
+    );
+
+    set_env(
+        context(CONTRACT, 0, 12, NOW_SECS),
+        vec![PromiseResult::Failed],
+    );
+    contract.on_liquidation_refund(1, U128(4_400_000));
+    assert_eq!(
+        contract
+            .get_position(1)
+            .liquidation_ticket
+            .expect("ticket")
+            .status,
+        TicketStatus::RefundPending
+    );
+
+    set_env(context(OWNER, 0, 13, NOW_SECS), vec![]);
+    contract.refund_liquidation(1);
+    assert_eq!(
+        contract
+            .get_position(1)
+            .liquidation_ticket
+            .expect("ticket")
+            .status,
+        TicketStatus::Refunding
+    );
+
+    set_env(
+        context(CONTRACT, 0, 14, NOW_SECS),
+        vec![PromiseResult::Failed],
+    );
+    contract.on_liquidation_refund(1, U128(4_400_000));
+
+    set_env(context(OWNER, 0, 15, NOW_SECS), vec![]);
+    contract.refund_liquidation(1);
+    set_env(
+        context(CONTRACT, 0, 16, NOW_SECS),
+        vec![PromiseResult::Successful(Vec::new())],
+    );
+    contract.on_liquidation_refund(1, U128(4_400_000));
+    let position = contract.get_position(1);
+    assert_eq!(
+        position.liquidation_ticket.expect("ticket").status,
+        TicketStatus::Refunded
+    );
+    assert_eq!(position.debt_usdc.0, 4_400_000);
+    assert_eq!(contract.total_debt_usdc, 4_400_000);
+}
+
+#[test]
+fn local_e2e_failed_liquidation_payout_refunds_principal() {
+    let (mut contract, owner_key, address, oracle) = bootstrap(300_000_000_000, 4_400_000);
+
+    set_env(context(OWNER, 0, 8, NOW_SECS), vec![]);
+    publish_price(&mut contract, &oracle, 10_000_000_000, 2);
+
+    set_env(context(LIQUIDATOR, 0, 9, NOW_SECS), vec![]);
+    contract.register_sepolia_address("0x0000000000000000000000000000000000000003".to_string());
+
+    set_env(context(USDC, 0, 10, NOW_SECS), vec![]);
+    let _ = contract.ft_on_transfer(
+        account(LIQUIDATOR),
+        U128(4_400_000),
+        json!({"action": "liquidate", "position_id": 1}).to_string(),
+    );
+    sign_withdrawal(&mut contract, &owner_key);
+    let ticket = contract.get_position(1).liquidation_ticket.expect("ticket");
+    let balance_after = COLLATERAL - GAS_COST;
+    let (header, proof, header_hash) = synthetic_proof(address, 1, balance_after, 1_001);
+    set_env(context(OWNER, 0, 11, NOW_SECS), vec![]);
+    contract.confirm_withdrawal(1, header, proof);
+    set_env(
+        context(CONTRACT, 0, 12, NOW_SECS),
+        vec![PromiseResult::Successful(hash_result(&header_hash))],
+    );
+    contract.on_block_hash(1, hex::encode(header_hash));
+
+    let position = contract.get_position(1);
+    assert_eq!(position.status, PositionStatus::Idle);
+    assert_eq!(position.debt_usdc.0, 4_400_000);
+    assert_eq!(contract.total_debt_usdc, 4_400_000);
+    assert_eq!(
+        position.liquidation_ticket.expect("ticket").status,
+        TicketStatus::Refunding
+    );
+    assert_eq!(position.collateral_wei.0, balance_after);
+
+    set_env(
+        context(CONTRACT, 0, 13, NOW_SECS),
+        vec![PromiseResult::Successful(Vec::new())],
+    );
+    contract.on_liquidation_refund(1, ticket.repay_usdc);
+    assert_eq!(
+        contract
+            .get_position(1)
+            .liquidation_ticket
+            .expect("ticket")
+            .status,
+        TicketStatus::Refunded
+    );
+}
+
+#[test]
+fn local_e2e_underwater_liquidation_records_bad_debt() {
+    let (mut contract, owner_key, address, oracle) = bootstrap(300_000_000_000, 4_800_000);
+
+    set_env(context(OWNER, 0, 8, NOW_SECS), vec![]);
+    publish_price(&mut contract, &oracle, 10_000_000_000, 2);
+
+    set_env(context(LIQUIDATOR, 0, 9, NOW_SECS), vec![]);
+    contract.register_sepolia_address("0x0000000000000000000000000000000000000003".to_string());
+
+    set_env(context(USDC, 0, 10, NOW_SECS), vec![]);
+    let refund = contract.ft_on_transfer(
+        account(LIQUIDATOR),
+        U128(4_800_000),
+        json!({"action": "liquidate", "position_id": 1}).to_string(),
+    );
+    match refund {
+        near_sdk::PromiseOrValue::Value(value) => assert_eq!(value.0, 170_371),
+        _ => panic!("expected refund"),
+    }
+    let ticket = contract.get_position(1).liquidation_ticket.expect("ticket");
+    assert_eq!(ticket.repay_usdc.0, 4_629_629);
+    assert_eq!(ticket.collateral_wei.0, COLLATERAL - 500_000_000_000_000);
+    assert_eq!(contract.get_position(1).debt_usdc.0, 4_800_000);
+
+    sign_withdrawal(&mut contract, &owner_key);
+    let seized = contract
+        .get_position(1)
+        .liquidation_ticket
+        .expect("ticket")
+        .collateral_wei
+        .0;
+    assert_eq!(seized, COLLATERAL - 500_000_000_000_000);
+    let balance_after = COLLATERAL - seized - GAS_COST;
+    let (header, proof, header_hash) = synthetic_proof(address, 1, balance_after, 1_001);
+    set_env(context(OWNER, 0, 11, NOW_SECS), vec![]);
+    contract.confirm_withdrawal(1, header, proof);
+    set_env(
+        context(CONTRACT, 0, 12, NOW_SECS),
+        vec![PromiseResult::Successful(hash_result(&header_hash))],
+    );
+    contract.on_block_hash(1, hex::encode(header_hash));
+
+    let position = contract.get_position(1);
+    assert_eq!(position.status, PositionStatus::Idle);
+    assert_eq!(position.debt_usdc.0, 0);
+    assert_eq!(position.collateral_wei.0, balance_after);
+    assert_eq!(contract.total_debt_usdc, 0);
+    assert_eq!(contract.total_collateral_wei, balance_after);
+    assert_eq!(contract.total_bad_debt_usdc, 170_371);
+    assert_eq!(
+        position.liquidation_ticket.expect("ticket").status,
+        TicketStatus::Settled
+    );
+}
+
+#[test]
+fn local_e2e_proof_mismatch_requires_reconciliation_for_signed_payout() {
+    let (mut contract, owner_key, address, _oracle) = bootstrap(300_000_000_000, 4_400_000);
+    let amount = 10_000_000_000_000_000;
+
+    set_env(context(OWNER, 0, 8, NOW_SECS), vec![]);
+    contract.register_sepolia_address("0x0000000000000000000000000000000000000002".to_string());
+    contract.withdraw(1, U128(amount));
+    sign_withdrawal(&mut contract, &owner_key);
+
+    let balance_after = COLLATERAL - amount - GAS_COST;
+    let (header, proof, header_hash) = synthetic_proof(address, 1, balance_after, 1_001);
+    set_env(context(OWNER, 0, 11, NOW_SECS), vec![]);
+    contract.confirm_withdrawal(1, header.clone(), proof.clone());
+    set_env(
+        context(CONTRACT, 0, 12, NOW_SECS),
+        vec![PromiseResult::Successful(hash_result(&[0u8; 32]))],
+    );
+    contract.on_block_hash(1, hex::encode(header_hash));
+
+    let position = contract.get_position(1);
+    assert_eq!(position.status, PositionStatus::NeedsReview);
+    assert!(position.pending_withdrawal.is_some());
+    assert!(position.pending_deposit.is_some());
+
+    set_env(context(OWNER, 0, 100_012, NOW_SECS), vec![]);
+    let cleared = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        contract.clear_stuck_proof(1);
+    }));
+    assert!(cleared.is_err());
+
+    set_env(context(OWNER, 0, 100_013, NOW_SECS), vec![]);
+    contract.confirm_withdrawal(1, header, proof);
+    set_env(
+        context(CONTRACT, 0, 100_014, NOW_SECS),
+        vec![PromiseResult::Successful(hash_result(&header_hash))],
+    );
+    contract.on_block_hash(1, hex::encode(header_hash));
+
+    let position = contract.get_position(1);
+    assert_eq!(position.status, PositionStatus::Idle);
+    assert!(position.pending_withdrawal.is_none());
+    assert!(position.pending_deposit.is_none());
 }
