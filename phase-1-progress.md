@@ -3,7 +3,7 @@
 Date: 2026-11-14
 Branch: `phase-1/security-hardening`
 Base commit: `a2dec0a`
-Status: contract and agent hardening implemented; not deployed.
+Status: contract and agent hardening implemented and deployed to the v2 testnet contract; not mainnet.
 
 ## Objective
 
@@ -36,6 +36,7 @@ Fix the four High security findings from the audit, harden the proof/oracle/liqu
 - Added/updated contract, relayer, liquidator, and keeper tests.
 - Added a one-time private `migrate_legacy_ticket` path for the exact persisted v2 `Signed` ticket, with a one-time storage guard and strict state checks.
 - Recovered the v1 testnet balance: cleared the stale pending withdrawal, credited the current finalized proof, refreshed the v1 oracle price, withdrew `0.085904 ETH` to `0x0d5d...b8fa6`, and confirmed the payout.
+- Reconciled and upgraded v2: confirmed the pending withdrawal, moved the guardian to `v2.native-credit.testnet`, exported state, deployed the Phase 1 wasm, migrated the legacy ticket to `Settled`, and re-ran the live two-provider proof path.
 - Updated relayer/VERIFY/HANDOFF documentation to remove the single-provider workaround.
 
 ## Verification
@@ -56,19 +57,15 @@ See `phase-1-test-report.md` for commands and scope limits.
 
 ## Not Done
 
-- No contract deployment or upgrade was made. Live v1 recovery transactions were executed on 2026-11-14; live v2 is unchanged.
-- Two-provider live Sepolia proof generation was not re-run; public-provider availability remains an operational dependency.
-- The live v2 ticket remains `Signed`; v2 still uses the v1 account as guardian.
+- Phase 1 is deployed to the v2 testnet contract; no mainnet or third-party production deployment was made.
+- Public-provider availability remains an operational dependency.
 - No fuzzing, formal verification, fallback oracle, timelock, or full event schema was added.
-- Production wasm deployment review is still required; the candidate build is not deployed.
+- Monitoring/alerts and a documented rollback rehearsal remain to be completed.
 
 ## Next
 
-1. Commit and push the v1 recovery milestone.
-2. Move v2's guardian off the v1 account, then archive v1 operational references.
-3. Snapshot/export live state before any upgrade.
-4. Deploy the reviewed wasm in a controlled window.
-5. Reconcile the live v2 withdrawal with a finality proof; do not clear it as an unsigned stuck proof.
-6. Run the one-time legacy-ticket migration after the withdrawal is confirmed.
-7. Re-run the live proof path with two independent Sepolia providers.
-8. Decide whether to address remaining Medium/Low findings in Phase 2.
+1. Commit and push the v2 reconciliation milestone.
+2. Archive v1 operational references and remove v1 from active code/tests.
+3. Add monitoring for refunds, `NeedsReview`, failed payouts, and stale prices.
+4. Document and rehearse rollback using the saved pre-upgrade wasm/state.
+5. Decide whether to address remaining Medium/Low findings in Phase 2.

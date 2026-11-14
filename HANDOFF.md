@@ -31,8 +31,11 @@ Last updated: 2026-11-07
   owned by `borrower.native-credit.testnet`. The retired v1 contract remains at
   `native-credit.testnet` for historical evidence.
 - v1 funds were recovered on 2026-11-14: `0.085904 ETH` withdrawn to
-  `0x0d5d...b8fa6`, position `Idle` with only gas dust. V2 still uses
-  `native-credit.testnet` as guardian.
+  `0x0d5d...b8fa6`, position `Idle` with only gas dust.
+- v2 was reconciled on 2026-11-14: pending withdrawal confirmed, guardian
+  changed to `v2.native-credit.testnet`, Phase 1 wasm deployed (code hash
+  `GqCZxy7v4eZp1HH8sdqpMgpbENxUVtMscabZQp4oEE6f`), and the legacy ticket
+  migrated to `Settled`.
 - Current branch is `phase-1/security-hardening`; see `README.md` for current
   live state and `phase-1-operational-readiness.md` for deployment gates.
 
@@ -145,23 +148,24 @@ npm run build
 
 ## Verified now
 
-1. `cargo test -p native-credit`: **38 tests pass** (36 unit + 2 local E2E).
+1. `cargo test -p native-credit`: **51 tests pass** (45 unit + 6 local E2E).
 2. `cargo clippy -p native-credit --all-targets -- -D warnings`: clean.
 3. `cargo build -p native-credit --target wasm32-unknown-unknown --release`:
-   succeeds. `v2.native-credit.testnet` now runs the upgraded `609491`-byte wasm,
-   sha256 `345e1c91175345e78fc5b49c4ea6b9b18f06ed9de7dd3fbb9447264b7f330efd`,
-   code hash `4XRS7nEZJqD6JC5zbE35xMn2gG1D1PVi7yZrChHjxx3N`, deployed in tx
-   `AoaLM6MDSS2nsziqgmmgwhmjpAA65KdmMGCv7gYGBoJT`. The previous deployed v2 was
-   `605982` bytes, code hash `8R8LwzDfAtcLipoAiyyxfLsKhvJC8QWoGpiCpkKSBznR`; the
-   retired v1 contract ran the earlier `601264`-byte wasm.
-4. `npm test` in `agents/relayer`: **24 tests pass**.
+   succeeds. `v2.native-credit.testnet` now runs the Phase 1 `640731`-byte wasm,
+   sha256 `eb38435bc056d835543787bf9f3c89ee32e2330f2f0f97a17a40dc5130a2c124`,
+   code hash `GqCZxy7v4eZp1HH8sdqpMgpbENxUVtMscabZQp4oEE6f`, deployed in tx
+   `2r6oSSgJpxaHMkNNfcpX2iELZswh8AGub2Npy4kQh8X7`. The previous v2 was
+   `609491` bytes, code hash
+   `4XRS7nEZJqD6JC5zbE35xMn2gG1D1PVi7yZrChHjxx3N`; the retired v1 contract ran
+   the earlier `601264`-byte wasm.
+4. `npm test` in `agents/relayer`: **26 tests pass**.
 5. `npm test` in `agents/oracle`: **4 tests pass**; live `update_price`
    succeeded with 3-of-3 signatures, threshold 2.
 6. Live proof generation with two public providers succeeded at finalized
    Sepolia block `12065248`; the header hash matched the NEAR light client via
    `block_hash_safe`.
 7. Deployed `v2.native-credit.testnet`:
-   - owner `v2.native-credit.testnet`; guardian `native-credit.testnet`;
+   - owner and guardian `v2.native-credit.testnet`;
    - config uses USDC `3e2210...b8af`, `client-eth2.sepolia.testnet`,
      `v1.signer-prod.testnet`, chain id `11155111`, `gas_limit=250000` after
      the in-place upgrade;
@@ -210,14 +214,12 @@ npm run build
      the collateral account. See `AUDIT/FOLLOWUP.md`.
 9. Agent checks:
    - `agents/watcher`: **16 tests pass**;
-   - `agents/keeper`: **7 tests pass**;
-   - `agents/liquidator`: **10 tests pass**.
-10. Final live v2 state: position `1` is `Idle`, debt `0`,
-    `collateral_wei=3897999998392000`, `last_verified_nonce=3`,
-    `last_verified_block=12080729`, liquidation ticket `Settled`, and oracle
-    sequence `6` at `$3000` ETH/USD. The contract holds `20 USDC`. Watcher and
-    keeper report no alerts; the liquidator dry run refuses because health is
-    infinite.
+   - `agents/keeper`: **8 tests pass**;
+   - `agents/liquidator`: **12 tests pass**.
+10. Current live v2 state: position `1` is `Idle`, debt `0`,
+    `collateral_wei=3693399995323000`, `last_verified_nonce=4`,
+    `last_verified_block=12133272`, liquidation ticket `Settled`, and oracle
+    sequence `7` at `$3000` ETH/USD. The contract holds `20 USDC`.
 11. Real captured Sepolia vectors:
    - `testdata/sepolia_12058306.json` - 688-byte header RLP, state root,
      EOA proof for `0x...01`, USDC contract proof, derived-address absence proof.

@@ -18,11 +18,13 @@ cargo test -p native-credit --test local_e2e
 
 Expected: 51 tests pass (45 unit + 6 local E2E), clippy is clean, and
 `target/wasm32-unknown-unknown/release/native_credit.wasm` is produced.
-The candidate Phase 1 wasm is `640731` bytes, sha256
+The Phase 1 wasm is `640731` bytes, sha256
 `eb38435bc056d835543787bf9f3c89ee32e2330f2f0f97a17a40dc5130a2c124`,
-code hash `GqCZxy7v4eZp1HH8sdqpMgpbENxUVtMscabZQp4oEE6f`; it is not deployed.
+code hash `GqCZxy7v4eZp1HH8sdqpMgpbENxUVtMscabZQp4oEE6f`; it is deployed to
+`v2.native-credit.testnet` in tx
+`2r6oSSgJpxaHMkNNfcpX2iELZswh8AGub2Npy4kQh8X7`.
 
-The previously upgraded `v2.native-credit.testnet` wasm is `609491` bytes, sha256
+The previous v2 wasm was `609491` bytes, sha256
 `345e1c91175345e78fc5b49c4ea6b9b18f06ed9de7dd3fbb9447264b7f330efd`,
 with code hash `4XRS7nEZJqD6JC5zbE35xMn2gG1D1PVi7yZrChHjxx3N`. The previous
 deployed v2 was `605982` bytes, code hash
@@ -74,14 +76,14 @@ print(view("get_position", {"position_id": 1}))
 PY
 ```
 
-Expected: owner `v2.native-credit.testnet`, guardian `native-credit.testnet`,
-`gas_limit=250000`, the three Ed25519 oracle keys with threshold `2`, and
-position `1` owned by `borrower.native-credit.testnet` with `deposit_address`
-`0x81163cfa3c95b3691fdb4fb0766ecafcfa267999`. Final live position `1` is
-`Idle` with `collateral_wei=3897999998392000`, `debt_usdc=0`, no pending
-operations, `last_verified_nonce=3`, `last_verified_block=12080729`, and a
-`Settled` liquidation ticket. Oracle sequence is `6` at `$3000` ETH/USD.
-The contract holds `20 USDC` after the deposit/borrow/repay/liquidate cycle.
+Expected: owner and guardian `v2.native-credit.testnet`, `gas_limit=250000`,
+the three Ed25519 oracle keys with threshold `2`, and position `1` owned by
+`borrower.native-credit.testnet` with `deposit_address`
+`0x81163cfa3c95b3691fdb4fb0766ecafcfa267999`. Live position `1` is `Idle`
+with `collateral_wei=3693399995323000`, `debt_usdc=0`, no pending
+operations, `last_verified_nonce=4`, `last_verified_block=12133272`, and a
+`Settled` liquidation ticket. Oracle sequence is `7` at `$3000` ETH/USD.
+The contract holds `20 USDC`.
 
 ## 0b. Relayer checks
 

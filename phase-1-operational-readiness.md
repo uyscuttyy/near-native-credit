@@ -2,38 +2,42 @@
 
 Date: 2026-11-14
 Branch: `phase-1/security-hardening`
-Deployment status: not deployed. Live state was not modified.
+Deployment status: deployed to `v2.native-credit.testnet` on 2026-11-14. No mainnet deployment.
 
 ## Readiness decision
 
-**No production deployment yet.** Phase 1 code and local tests are complete, but the following gates remain:
+**Testnet reconciliation complete; not mainnet-ready.** Phase 1 code, local tests, the v2 upgrade, the pending withdrawal confirmation, the guardian change, and the legacy-ticket migration are complete. The following gates remain:
 
-1. Review the committed changes.
-2. Move v2's guardian off the v1 account and archive v1 operational references.
-3. Snapshot/export live contract state.
-4. Build and review the production wasm.
-5. Upgrade/redeploy in a controlled window.
-6. Reconcile the existing live v2 withdrawal.
-7. Run the legacy-ticket migration.
-8. Re-run the live two-provider proof path.
+1. Archive v1 operational references and remove v1 from active code/tests.
+2. Add monitoring/alerts for refunds, `NeedsReview`, failed payouts, and stale prices.
+3. Document and rehearse rollback with the saved pre-upgrade wasm and state export.
+4. Review remaining Medium/Low findings for Phase 2.
 
-The live v2 ticket is still `Signed`, and the live v1 position has been recovered to `Idle`. The code changes do not retroactively repair persisted v2 state.
+The live v2 ticket is `Settled`, the v1 position is recovered to `Idle`, and v2's guardian is `v2.native-credit.testnet`.
 
 ## Live state as last observed
 
 ### v2 position 1
 
-- Status: `WithdrawalPending`
-- Collateral: `0.013897999998392 ETH`
+- Status: `Idle`
+- Collateral: `0.003693399995323 ETH`
 - Debt: `0`
-- Nonce: `3`
-- Liquidation ticket: `Signed`
-- Sepolia transaction:
+- Nonce: `4`
+- Last verified block: `12133272`
+- Pending operations: none
+- Liquidation ticket: `Settled`
+- Guardian: `v2.native-credit.testnet`
+- Code hash: `GqCZxy7v4eZp1HH8sdqpMgpbENxUVtMscabZQp4oEE6f`
+- Deploy tx: `2r6oSSgJpxaHMkNNfcpX2iELZswh8AGub2Npy4kQh8X7`
+- Sepolia payout:
   - hash: `0x2a90b77ad94583af484e0f25fdf3f33a69c4d9e60869fbf7830b86738271f58f`
   - block: `12080980`
   - `gasUsed`: `204600`
   - status: succeeded
-- NEAR confirmation: not submitted
+- NEAR confirmation: `CWHvU2SN8RntCU4srqdY4GBjCxLCf8W7fpRro7xjR4fc`
+- Guardian tx: `BEh7YSTg1rLa6tCUH3YavfFj9znLHYZC67JJE9yRBPg8`
+- Migration tx: `45XzfjBwYcaAWHRrqoEJ8s5yGYmrKt32SDPQPfmbM3Yz`
+- Live two-provider proof: finalized block `12133303`, quorum `2/2`
 
 ### v1 position recovered
 
@@ -52,7 +56,7 @@ The live v2 ticket is still `Signed`, and the live v1 position has been recovere
   - oracle sequence `11`: `CnT6RfJjLpF5BcZR36uhxfgMDviXTpLeDKtdiUWykqrQ`
   - withdraw: `86zNEv9WJoJUY7Mn1JCfjM8buRBKJXkpJFBBRmcqpMru`
   - confirm: `CKU2wZWaDWhaHdwxNxXFm7sUhfPbEUzwCRyoKRXvtHQC`
-- Remaining v1 dependency: v2 guardian is still `native-credit.testnet`.
+- Remaining v1 dependency: none for guardian or funds. V1 remains only as historical on-chain state and docs/code references.
 
 Do not run `clear_stuck_proof` on a position without checking whether a signed payout exists. Signed payouts require proof.
 
@@ -89,8 +93,9 @@ For a fresh deployment, verify:
 ### Artifact
 
 - `cargo build --target wasm32-unknown-unknown --release` passed.
-- The candidate wasm is `640731` bytes, sha256 `eb38435bc056d835543787bf9f3c89ee32e2330f2f0f97a17a40dc5130a2c124`, code hash `GqCZxy7v4eZp1HH8sdqpMgpbENxUVtMscabZQp4oEE6f`.
-- It has not been deployed; review and deployment approval are still required.
+- The deployed wasm is `640731` bytes, sha256 `eb38435bc056d835543787bf9f3c89ee32e2330f2f0f97a17a40dc5130a2c124`, code hash `GqCZxy7v4eZp1HH8sdqpMgpbENxUVtMscabZQp4oEE6f`.
+- Pre-upgrade wasm saved at `/tmp/v2-deployed-before-upgrade.wasm`; pre-upgrade state exports saved under `/tmp/v2-state-*.json`.
+- No mainnet deployment has been performed.
 - The native-target `cargo check` command is not usable because of near-sdk guidance.
 
 ## Runbooks
@@ -167,13 +172,13 @@ If the ticket is `Refunding`, wait for the callback. Do not start a second refun
 
 ## Go/no-go checklist
 
-- [ ] Changes committed and reviewed.
+- [x] Changes committed and reviewed.
 - [x] Legacy-ticket migration implemented and tested.
-- [ ] Live state exported and backed up.
-- [ ] Production wasm built and deployed after review.
+- [x] Live state exported and backed up.
+- [x] Production wasm built and deployed to v2 testnet.
 - [ ] Deployment/upgrade script prepared and dry-run.
-- [ ] Two independent Sepolia providers validated.
-- [ ] Live v2 withdrawal reconciled with a finality proof.
+- [x] Two independent Sepolia providers validated.
+- [x] Live v2 withdrawal reconciled with a finality proof.
 - [x] Live v1 `NeedsReview` investigated and funds recovered.
 - [ ] Rollback plan documented, including the new-status incompatibility.
 - [ ] Monitoring/alerts configured for refunds, `NeedsReview`, failed payouts, and stale prices.

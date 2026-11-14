@@ -23,7 +23,7 @@ A read-only internal audit was completed on **2026-11-14** against commit `f8241
 The High findings are lifecycle and accounting failures, not a missing signature check:
 
 1. A failed or stuck liquidation can consume the liquidator's USDC with no refund or recoverable claim.
-2. Liquidation ticket status can be overwritten by later signatures; the live v2 ticket is currently `Signed` when it should be terminal.
+2. Liquidation ticket status could be overwritten by later signatures; the live v2 ticket was `Signed` when it should have been terminal.
 3. Bad debt is never recorded; debt can be zeroed even when seized collateral is worth less than the repayment.
 4. There is no safe recovery path for signed-but-unbroadcast payouts or light-client proof mismatches.
 
@@ -31,9 +31,9 @@ The live proof run also used a single RPC provider, not the intended multi-provi
 
 **Verdict:** conditionally usable for a controlled testnet demo; not ready for third-party testnet users, production, or mainnet.
 
-### Phase 1 remediation (local, not deployed)
+### Phase 1 remediation (deployed to v2 testnet)
 
-Phase 1 fixes for the four High findings are implemented on `phase-1/security-hardening` and covered by local tests, but they are **not deployed** and the live state above is unchanged. The fixes add liquidation refunds and retry, terminal-ticket protection, bad-debt accounting, signed-payout reconciliation, a one-time private legacy-ticket migration, oracle validation, and a two-provider chain-checked proof quorum. See:
+Phase 1 fixes for the four High findings are implemented on `phase-1/security-hardening`, covered by local tests, and deployed to `v2.native-credit.testnet` on 2026-11-14. The fixes add liquidation refunds and retry, terminal-ticket protection, bad-debt accounting, signed-payout reconciliation, a one-time private legacy-ticket migration, oracle validation, and a two-provider chain-checked proof quorum. See:
 
 - [`phase-1-progress.md`](./phase-1-progress.md)
 - [`phase-1-security-fixes.md`](./phase-1-security-fixes.md)
@@ -56,10 +56,10 @@ Read the full audit:
 
 | Item | Value |
 |---|---|
-| Wasm size | `609491` bytes |
-| Wasm sha256 | `345e1c91175345e78fc5b49c4ea6b9b18f06ed9de7dd3fbb9447264b7f330efd` |
-| Code hash | `4XRS7nEZJqD6JC5zbE35xMn2gG1D1PVi7yZrChHjxx3N` |
-| Deploy tx | `AoaLM6MDSS2nsziqgmmgwhmjpAA65KdmMGCv7gYGBoJT` |
+| Wasm size | `640731` bytes |
+| Wasm sha256 | `eb38435bc056d835543787bf9f3c89ee32e2330f2f0f97a17a40dc5130a2c124` |
+| Code hash | `GqCZxy7v4eZp1HH8sdqpMgpbENxUVtMscabZQp4oEE6f` |
+| Deploy tx | `2r6oSSgJpxaHMkNNfcpX2iELZswh8AGub2Npy4kQh8X7` |
 | Light client | `client-eth2.sepolia.testnet` |
 | MPC | `v1.signer-prod.testnet` |
 | Chain id | `11155111` |
@@ -73,22 +73,23 @@ Current position state:
 
 | Item | Value |
 |---|---|
-| Status | `WithdrawalPending` |
-| Collateral | `0.013897999998392 ETH` |
+| Status | `Idle` |
+| Collateral | `0.003693399995323 ETH` |
 | Debt | `0 USDC` |
-| Last verified block | `12080892` |
-| Last verified nonce | `3` |
-| Pending withdrawal | `0.01 ETH` to `0x0d5d9acdb6adf6dce00d14972f7ce7b1e99b8fa6` |
-| Sepolia tx | `0x2a90b77ad94583af484e0f25fdf3f33a69c4d9e60869fbf7830b86738271f58f` |
+| Last verified block | `12133272` |
+| Last verified nonce | `4` |
+| Pending operations | none |
+| Sepolia payout tx | `0x2a90b77ad94583af484e0f25fdf3f33a69c4d9e60869fbf7830b86738271f58f` |
 | Sepolia receipt | block `12080980`, status `0x1`, `gasUsed=204600` |
-| NEAR confirmation | **Not submitted** |
-| Liquidation ticket | `Signed` (known defect; expected terminal state was `Settled`) |
+| NEAR confirmation | `CWHvU2SN8RntCU4srqdY4GBjCxLCf8W7fpRro7xjR4fc` |
+| Guardian | `v2.native-credit.testnet` |
+| Liquidation ticket | `Settled` via migration tx `45XzfjBwYcaAWHRrqoEJ8s5yGYmrKt32SDPQPfmbM3Yz` |
 
-The Sepolia payout succeeded, but the NEAR position remains `WithdrawalPending` until `confirm_withdrawal` is submitted. Live confirmation is intentionally paused pending audit approval.
+The pending withdrawal was confirmed, the guardian was moved off v1, the Phase 1 wasm was deployed, and the legacy `Signed` ticket was reconciled to `Settled`. The live two-provider proof path succeeded at finalized Sepolia block `12133303`.
 
 ### v1 (`native-credit.testnet`)
 
-The v1 position was recovered on 2026-11-14. The stale pending withdrawal was cleared, the current finalized balance was credited, oracle sequence `11` refreshed the price, and `0.085904 ETH` was withdrawn to `0x0d5d...b8fa6` in Sepolia tx `0x353b6195c17b93f829cef096e6b5dbd77c3418e43f9da1dafad2796a8aa11a3b`. V1 is now `Idle` with debt `0` and only `0.000020999999664 ETH` gas dust remaining. V2 still uses the v1 account as guardian; that is the remaining v1 dependency.
+The v1 position was recovered on 2026-11-14. The stale pending withdrawal was cleared, the current finalized balance was credited, oracle sequence `11` refreshed the price, and `0.085904 ETH` was withdrawn to `0x0d5d...b8fa6` in Sepolia tx `0x353b6195c17b93f829cef096e6b5dbd77c3418e43f9da1dafad2796a8aa11a3b`. V1 is now `Idle` with debt `0` and only `0.000020999999664 ETH` gas dust remaining. V2 no longer depends on the v1 account for guardian or funds.
 
 ### Gas note
 
