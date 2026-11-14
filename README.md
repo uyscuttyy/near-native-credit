@@ -33,7 +33,7 @@ The live proof run also used a single RPC provider, not the intended multi-provi
 
 ### Phase 1 remediation (deployed to v2 testnet)
 
-Phase 1 fixes for the four High findings are implemented on `phase-1/security-hardening`, covered by local tests, and deployed to `v2.native-credit.testnet` on 2026-11-14. The fixes add liquidation refunds and retry, terminal-ticket protection, bad-debt accounting, signed-payout reconciliation, a one-time private legacy-ticket migration, oracle validation, and a two-provider chain-checked proof quorum. See:
+Phase 1 fixes for the four High findings are implemented on `phase-1/security-hardening`, covered by local tests, and deployed to `v2.native-credit.testnet` on 2026-11-14. The fixes add liquidation refunds and retry, terminal-ticket protection, bad-debt accounting, signed-payout reconciliation, a one-time private legacy-ticket migration (executed and now removed from source), oracle validation, and a two-provider chain-checked proof quorum. See:
 
 - [`phase-1-progress.md`](./phase-1-progress.md)
 - [`phase-1-security-fixes.md`](./phase-1-security-fixes.md)
@@ -252,7 +252,7 @@ Before any further live user-facing action:
 
 1. Add monitoring/alerts for refunds, `NeedsReview`, failed payouts, and stale prices.
 2. Document and rehearse rollback with the saved pre-upgrade wasm and state export.
-3. Decide whether to remove the now-inert one-time `migrate_legacy_ticket` function in a follow-up upgrade.
+3. Deploy the cleanup wasm that removes the inert legacy migration function.
 4. Assign owners for the remaining Medium/Low audit findings.
 5. Keep this README, `HANDOFF.md`, and `VERIFY.md` synchronized with verified live state.
 

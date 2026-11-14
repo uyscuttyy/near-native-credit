@@ -58,7 +58,7 @@ A Sepolia EOA must retain ETH for gas. Full liquidation therefore seizes `collat
 
 ### Live consequence
 
-The live v2 ticket was migrated from `Signed` to `Settled` on 2026-11-14 after the pending withdrawal was confirmed. The one-time private `migrate_legacy_ticket` path accepted only the exact persisted position `1` state, required no pending operation and zero debt, moved no funds, and recorded a one-time storage flag.
+The live v2 ticket was migrated from `Signed` to `Settled` on 2026-11-14 after the pending withdrawal was confirmed. The one-time private `migrate_legacy_ticket` path accepted only the exact persisted position `1` state, required no pending operation and zero debt, moved no funds, and recorded a one-time storage flag. The inert path has been removed from source; the cleanup wasm is pending deployment.
 
 ## F-03: Bad-debt recording
 
@@ -96,12 +96,7 @@ A signed-but-unbroadcast payout, or a light-client hash mismatch, could leave th
   - requires a `100_000` block timeout for unsigned pending operations;
   - refunds unsigned liquidation claims;
   - rejects active tickets that require reconciliation.
-- `migrate_legacy_ticket`:
-  - private callback, callable only by the contract account;
-  - one-time storage guard;
-  - accepts only the exact legacy owner/liquidator/amounts/destination and `Signed` status;
-  - requires `Idle`, zero debt, and no pending operations;
-  - changes only the ticket status to `Settled`; no funds move.
+- `migrate_legacy_ticket` was a one-time, private, strictly constrained status migration; it is now removed from source after execution.
 - `confirm_withdrawal`:
   - accepts `NeedsReview`;
   - requires a signed pending withdrawal;

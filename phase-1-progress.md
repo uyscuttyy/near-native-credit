@@ -34,21 +34,21 @@ Fix the four High security findings from the audit, harden the proof/oracle/liqu
   - proof collection fails closed below quorum.
 - Aligned liquidator/keeper estimates with contract max-repay, gas-reserve, and bad-debt rules.
 - Added/updated contract, relayer, liquidator, and keeper tests.
-- Added a one-time private `migrate_legacy_ticket` path for the exact persisted v2 `Signed` ticket, with a one-time storage guard and strict state checks.
+- Added a one-time private `migrate_legacy_ticket` path for the exact persisted v2 `Signed` ticket, executed it, then removed the inert path from source.
 - Recovered the v1 testnet balance: cleared the stale pending withdrawal, credited the current finalized proof, refreshed the v1 oracle price, withdrew `0.085904 ETH` to `0x0d5d...b8fa6`, and confirmed the payout.
 - Reconciled and upgraded v2: confirmed the pending withdrawal, moved the guardian to `v2.native-credit.testnet`, exported state, deployed the Phase 1 wasm, migrated the legacy ticket to `Settled`, and re-ran the live two-provider proof path.
 - Updated relayer/VERIFY/HANDOFF documentation to remove the single-provider workaround.
 
 ## Verification
 
-- Contract unit tests: `45 passed`.
+- Contract unit tests: `43 passed`.
 - Contract local E2E tests: `6 passed`.
 - Relayer tests: `26 passed`.
 - Keeper tests: `8 passed`.
 - Liquidator tests: `12 passed`.
 - Oracle tests: `4 passed`.
 - Watcher tests: `16 passed`.
-- Total recorded tests: `117 passed`.
+- Total recorded tests: `115 passed`.
 - `cargo fmt --all -- --check`: clean.
 - `cargo clippy -p native-credit --all-targets -- -D warnings`: clean.
 - `cargo build -p native-credit --target wasm32-unknown-unknown --release`: passed.
@@ -57,15 +57,15 @@ See `phase-1-test-report.md` for commands and scope limits.
 
 ## Not Done
 
-- Phase 1 is deployed to the v2 testnet contract; no mainnet or third-party production deployment was made.
+- Phase 1 is deployed to the v2 testnet contract; the cleanup wasm that removes the inert migration path is not yet deployed. No mainnet or third-party production deployment was made.
 - Public-provider availability remains an operational dependency.
 - No fuzzing, formal verification, fallback oracle, timelock, or full event schema was added.
 - Monitoring/alerts and a documented rollback rehearsal remain to be completed.
 
 ## Next
 
-1. Commit and push the v2 reconciliation milestone.
-2. Archive v1 operational references and remove v1 from active code/tests.
+1. Commit and push the cleanup wasm.
+2. Deploy the cleanup wasm after explicit approval, then update the live code hash.
 3. Add monitoring for refunds, `NeedsReview`, failed payouts, and stale prices.
 4. Document and rehearse rollback using the saved pre-upgrade wasm/state.
 5. Decide whether to address remaining Medium/Low findings in Phase 2.

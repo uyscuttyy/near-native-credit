@@ -8,7 +8,7 @@ Deployment status: deployed to `v2.native-credit.testnet` on 2026-11-14. No main
 
 **Testnet reconciliation complete; not mainnet-ready.** Phase 1 code, local tests, the v2 upgrade, the pending withdrawal confirmation, the guardian change, and the legacy-ticket migration are complete. The following gates remain:
 
-1. Archive v1 operational references and remove v1 from active code/tests.
+1. Deploy the cleanup wasm that removes the inert legacy migration function.
 2. Add monitoring/alerts for refunds, `NeedsReview`, failed payouts, and stale prices.
 3. Document and rehearse rollback with the saved pre-upgrade wasm and state export.
 4. Review remaining Medium/Low findings for Phase 2.
@@ -75,7 +75,7 @@ Do not run `clear_stuck_proof` on a position without checking whether a signed p
   - `Refunded`
 - Existing state can be read by the new code without a field migration.
 - Old code cannot safely read tickets that use the new refund variants. Do not roll back after new statuses are written unless state is restored from a snapshot.
-- The only migration is the one-time private `migrate_legacy_ticket` path. It uses a separate storage key, changes no serialized fields, and only mutates the exact persisted v2 ticket after strict state checks.
+- The one-time private `migrate_legacy_ticket` path was executed and is now removed from source. The deployed v2 wasm still contains it until the cleanup wasm is deployed. The path changed no serialized fields and used a separate storage key.
 
 ### Initialization requirements
 
@@ -93,7 +93,8 @@ For a fresh deployment, verify:
 ### Artifact
 
 - `cargo build --target wasm32-unknown-unknown --release` passed.
-- The deployed wasm is `640731` bytes, sha256 `eb38435bc056d835543787bf9f3c89ee32e2330f2f0f97a17a40dc5130a2c124`, code hash `GqCZxy7v4eZp1HH8sdqpMgpbENxUVtMscabZQp4oEE6f`.
+- The deployed Phase 1 wasm is `640731` bytes, sha256 `eb38435bc056d835543787bf9f3c89ee32e2330f2f0f97a17a40dc5130a2c124`, code hash `GqCZxy7v4eZp1HH8sdqpMgpbENxUVtMscabZQp4oEE6f`.
+- The cleanup candidate wasm is `638233` bytes, sha256 `b03c68feda95671773ec1992579ccb3843dd18743d25bfcc76279052933e9a91`, code hash `CrxBYhxfBqcFgc7hh9dekdhNRoPLu52cQNt82QChGz7z`; it is not deployed.
 - Pre-upgrade wasm saved at `/tmp/v2-deployed-before-upgrade.wasm`; pre-upgrade state exports saved under `/tmp/v2-state-*.json`.
 - No mainnet deployment has been performed.
 - The native-target `cargo check` command is not usable because of near-sdk guidance.
@@ -182,5 +183,5 @@ Executed on 2026-11-14 in tx `45XzfjBwYcaAWHRrqoEJ8s5yGYmrKt32SDPQPfmbM3Yz`; ret
 - [x] Two independent Sepolia providers validated.
 - [x] Live v2 withdrawal reconciled with a finality proof.
 - [x] Live v1 `NeedsReview` investigated and funds recovered.
-- [ ] Rollback plan rehearsed; saved pre-upgrade wasm/state are available.
+- [ ] Cleanup wasm deployed and rollback plan rehearsed; saved pre-upgrade wasm/state are available.
 - [ ] Monitoring/alerts configured for refunds, `NeedsReview`, failed payouts, and stale prices.
