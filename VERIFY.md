@@ -18,14 +18,16 @@ cargo test -p native-credit --test local_e2e
 
 Expected: 49 tests pass (43 unit + 6 local E2E), clippy is clean, and
 `target/wasm32-unknown-unknown/release/native_credit.wasm` is produced.
-The deployed Phase 1 wasm is `640731` bytes, sha256
+The deployed cleanup wasm is `638233` bytes, sha256
+`b03c68feda95671773ec1992579ccb3843dd18743d25bfcc76279052933e9a91`,
+code hash `CrxBYhxfBqcFgc7hh9dekdhNRoPLu52cQNt82QChGz7z`, in tx
+`GJpz9wwvbJeF35qQGCgbb3ziCnxg4384HsCRLTqpYPDn`. It removes the executed
+legacy migration path.
+
+The previous Phase 1 wasm was `640731` bytes, sha256
 `eb38435bc056d835543787bf9f3c89ee32e2330f2f0f97a17a40dc5130a2c124`,
 code hash `GqCZxy7v4eZp1HH8sdqpMgpbENxUVtMscabZQp4oEE6f`, in tx
 `2r6oSSgJpxaHMkNNfcpX2iELZswh8AGub2Npy4kQh8X7`.
-
-The cleanup candidate wasm (legacy migration path removed) is `638233` bytes,
-sha256 `b03c68feda95671773ec1992579ccb3843dd18743d25bfcc76279052933e9a91`,
-code hash `CrxBYhxfBqcFgc7hh9dekdhNRoPLu52cQNt82QChGz7z`; it is not deployed.
 
 The earlier v2 wasm was `609491` bytes, sha256
 `345e1c91175345e78fc5b49c4ea6b9b18f06ed9de7dd3fbb9447264b7f330efd`,

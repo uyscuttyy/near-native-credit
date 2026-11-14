@@ -2,7 +2,7 @@
 
 Date: 2026-11-14
 Branch: `phase-1/security-hardening`
-Result: all recorded local tests pass. This report covers pre-deployment checks; the later live v1/v2 reconciliation is recorded in `phase-1-operational-readiness.md`.
+Result: all recorded local tests pass. This report covers local checks; live v1/v2 reconciliation and cleanup deployment are recorded in `phase-1-operational-readiness.md`.
 
 ## Summary
 
@@ -119,8 +119,8 @@ Key expected values from the underwater test:
 
 - Contract E2E tests use synthetic Sepolia proofs; they do not broadcast transactions.
 - No live Sepolia RPC quorum was re-measured after the relayer changes.
-- Local tests do not cover the later live upgrade; deployment and reconciliation are recorded separately.
-- The live v1/v2 reconciliation happened after this report; see `phase-1-operational-readiness.md`.
+
+
 - No fuzzing, property testing, differential testing, or formal verification was performed.
 - The custom RLP/MPT/transaction verifier remains consensus-critical and under-assured.
 

@@ -56,10 +56,10 @@ Read the full audit:
 
 | Item | Value |
 |---|---|
-| Wasm size | `640731` bytes |
-| Wasm sha256 | `eb38435bc056d835543787bf9f3c89ee32e2330f2f0f97a17a40dc5130a2c124` |
-| Code hash | `GqCZxy7v4eZp1HH8sdqpMgpbENxUVtMscabZQp4oEE6f` |
-| Deploy tx | `2r6oSSgJpxaHMkNNfcpX2iELZswh8AGub2Npy4kQh8X7` |
+| Wasm size | `638233` bytes |
+| Wasm sha256 | `b03c68feda95671773ec1992579ccb3843dd18743d25bfcc76279052933e9a91` |
+| Code hash | `CrxBYhxfBqcFgc7hh9dekdhNRoPLu52cQNt82QChGz7z` |
+| Deploy tx | `GJpz9wwvbJeF35qQGCgbb3ziCnxg4384HsCRLTqpYPDn` |
 | Light client | `client-eth2.sepolia.testnet` |
 | MPC | `v1.signer-prod.testnet` |
 | Chain id | `11155111` |
@@ -252,9 +252,9 @@ Before any further live user-facing action:
 
 1. Add monitoring/alerts for refunds, `NeedsReview`, failed payouts, and stale prices.
 2. Document and rehearse rollback with the saved pre-upgrade wasm and state export.
-3. Deploy the cleanup wasm that removes the inert legacy migration function.
-4. Assign owners for the remaining Medium/Low audit findings.
-5. Keep this README, `HANDOFF.md`, and `VERIFY.md` synchronized with verified live state.
+3. Add monitoring/alerts for refunds, `NeedsReview`, failed payouts, and stale prices.
+4. Document and rehearse rollback with the saved pre-upgrade wasm and state export.
+5. Assign owners for the remaining Medium/Low audit findings and keep the docs synchronized with verified live state.
 
 See [`recommended-roadmap.md`](./recommended-roadmap.md) for the P0/P1/P2/P3 sequence.
 

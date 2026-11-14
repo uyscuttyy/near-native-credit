@@ -33,9 +33,10 @@ Last updated: 2026-11-07
 - v1 funds were recovered on 2026-11-14: `0.085904 ETH` withdrawn to
   `0x0d5d...b8fa6`, position `Idle` with only gas dust.
 - v2 was reconciled on 2026-11-14: pending withdrawal confirmed, guardian
-  changed to `v2.native-credit.testnet`, Phase 1 wasm deployed (code hash
-  `GqCZxy7v4eZp1HH8sdqpMgpbENxUVtMscabZQp4oEE6f`), and the legacy ticket
-  migrated to `Settled`.
+  changed to `v2.native-credit.testnet`, Phase 1 wasm deployed, and the legacy
+  ticket migrated to `Settled`.
+- The executed legacy migration path was then removed; v2 now runs the
+  cleanup wasm (code hash `CrxBYhxfBqcFgc7hh9dekdhNRoPLu52cQNt82QChGz7z`).
 - Current branch is `phase-1/security-hardening`; see `README.md` for current
   live state and `phase-1-operational-readiness.md` for deployment gates.
 

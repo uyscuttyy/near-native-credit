@@ -57,15 +57,14 @@ See `phase-1-test-report.md` for commands and scope limits.
 
 ## Not Done
 
-- Phase 1 is deployed to the v2 testnet contract; the cleanup wasm that removes the inert migration path is not yet deployed. No mainnet or third-party production deployment was made.
+- Phase 1 and the cleanup wasm are deployed to the v2 testnet contract; no mainnet or third-party production deployment was made.
 - Public-provider availability remains an operational dependency.
 - No fuzzing, formal verification, fallback oracle, timelock, or full event schema was added.
 - Monitoring/alerts and a documented rollback rehearsal remain to be completed.
 
 ## Next
 
-1. Commit and push the cleanup wasm.
-2. Deploy the cleanup wasm after explicit approval, then update the live code hash.
-3. Add monitoring for refunds, `NeedsReview`, failed payouts, and stale prices.
-4. Document and rehearse rollback using the saved pre-upgrade wasm/state.
-5. Decide whether to address remaining Medium/Low findings in Phase 2.
+1. Commit and push the deployed cleanup wasm.
+2. Add monitoring for refunds, `NeedsReview`, failed payouts, and stale prices.
+3. Document and rehearse rollback using the saved pre-upgrade wasm/state.
+4. Decide whether to address remaining Medium/Low findings in Phase 2.
