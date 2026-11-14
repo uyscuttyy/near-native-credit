@@ -16,7 +16,7 @@ cargo build -p native-credit --target wasm32-unknown-unknown --release
 cargo test -p native-credit --test local_e2e
 ```
 
-Expected: 38 tests pass (36 unit + 2 local E2E), clippy is clean, and
+Expected: 49 tests pass (43 unit + 6 local E2E), clippy is clean, and
 `target/wasm32-unknown-unknown/release/native_credit.wasm` is produced.
 The upgraded `v2.native-credit.testnet` wasm is `609491` bytes, sha256
 `345e1c91175345e78fc5b49c4ea6b9b18f06ed9de7dd3fbb9447264b7f330efd`,
@@ -89,29 +89,32 @@ npm test
 npm run proof --   --address 0x0000000000000000000000000000000000000001   --position 1   --out /tmp/deposit-proof.json   --args-out /tmp/deposit-args.json
 ```
 
-Expected: 24 tests pass. The proof command uses the public Sepolia providers,
+Expected: 26 tests pass. The proof command uses the public Sepolia providers,
 requires a 2-provider quorum, writes the contract arguments, and prints a block
 number. With the default light-client preflight, the output's
 `light_client.matches` must be `true`. If the account is absent, the command
 warns and still writes a valid absence proof; regenerate after funding.
 
-On 2026-11-07 the default public providers rejected pinned finalized proofs
-with `distance to target block exceeds maximum proof window`; thirdweb returned
-HTTP 403. For the live run, use OnFinality with `--min-quorum 1` and an explicit
+On 2026-11-07 some public providers rejected pinned finalized proofs with
+`distance to target block exceeds maximum proof window`, and thirdweb returned
+HTTP 403. The proof tool now rejects `--min-quorum 1` and checks `eth_chainId`
+for every provider. Supply two independent Sepolia endpoints; if one is
+blocked, replace it rather than lowering the quorum. Use an explicit
 `--block <n>` that the NEAR light client also reports safe:
 
 ```sh
 npm run proof -- \
   --address 0x81163cfa3c95b3691fdb4fb0766ecafcfa267999 \
   --position 1 \
-  --providers https://eth-sepolia.api.onfinality.io/public \
-  --min-quorum 1 \
+  --providers "$SEPOLIA_RPC_URL_A,$SEPOLIA_RPC_URL_B" \
+  --min-quorum 2 \
   --block <safe-block> \
   --out /tmp/deposit-proof.json \
   --args-out /tmp/deposit-args.json
 ```
 
-Single-provider quorum is a live-workaround, not the production trust model.
+Both providers must return chain id `0xaa36a7` and matching account snapshots;
+otherwise the command fails closed.
 
 For the live position, replace the example address with
 `0x81163cfa3c95b3691fdb4fb0766ecafcfa267999` and keep `--position 1`. The
@@ -205,7 +208,7 @@ npm run liquidate -- \
   --position 1 --json
 ```
 
-Expected: watcher `16` tests, keeper `7` tests, liquidator `10` tests. Position
+Expected: watcher `16` tests, keeper `8` tests, liquidator `12` tests. Position
 `1` reports `Idle`, infinite health, zero debt, `0.003897999998392` ETH
 collateral, and a fresh oracle. The liquidator dry run exits with
 `health ∞ is not below 1.00x`; it never sends without `--execute`.

@@ -50,7 +50,7 @@ Options:
 --method <name>       record_deposit (default) or confirm_withdrawal
 --block <tag>         finalized (default), latest, or a block number
 --providers <urls>    Comma-separated Sepolia RPC URLs
---min-quorum <n>      Required successful providers (default: 2)
+--min-quorum <n>      Required successful providers (minimum/default: 2)
 --light-client <id>   NEAR light-client account
 --near-rpc <url>      NEAR RPC URL
 --no-check-finality   Skip the light-client preflight
@@ -58,9 +58,11 @@ Options:
 --args-out <path>     Contract arguments JSON only
 ```
 
-Use `--min-quorum 1` only for debugging; the production path requires two
-matching providers. An absent account produces a valid absence proof, but a
-deposit proof must be regenerated after the account is funded.
+Values below `2` are rejected. Every configured provider is checked with
+`eth_chainId`; providers not on Sepolia (`0xaa36a7`) are excluded, and the
+command fails closed unless at least two chain-valid providers return matching
+snapshots. An absent account produces a valid absence proof, but a deposit
+proof must be regenerated after the account is funded.
 
 ## Submit a proof
 
@@ -168,8 +170,8 @@ NEAR_RPC_URL=https://rpc.testnet.near.org
 ```
 
 No API key is required with the default public endpoints. Public RPCs can rate
-limit or lag; if quorum fails, retry or temporarily use one provider for
-debugging.
+limit or lag. If quorum fails, add an independent Sepolia provider or retry;
+do not lower the quorum below two.
 
 ## Tests
 

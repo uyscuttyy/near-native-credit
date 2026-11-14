@@ -251,7 +251,7 @@ npm run build
 - Do not credit a deposit before the light client accepts the block.
 - Do not complete a withdrawal before finality and a nonce advance.
 - Do not use publicnode/tenderly/zan/1rpc for historical proofs; they fail.
-- Public Sepolia RPCs are rate limited; `--min-quorum 1` is debugging only.
+- Public Sepolia RPCs are rate limited; proof generation requires two chain-valid providers (`--min-quorum <2` is rejected).
 - Light-client view calls use Borsh arguments, not JSON numbers:
   `block_hash_safe` needs an 8-byte little-endian `u64`. A JSON number silently
   deserializes to the wrong block and returns `None`.

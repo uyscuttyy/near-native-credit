@@ -31,6 +31,15 @@ The live proof run also used a single RPC provider, not the intended multi-provi
 
 **Verdict:** conditionally usable for a controlled testnet demo; not ready for third-party testnet users, production, or mainnet.
 
+### Phase 1 remediation (local, not deployed)
+
+Phase 1 fixes for the four High findings are implemented on `phase-1/security-hardening` and covered by local tests, but they are **not deployed** and the live state above is unchanged. The fixes add liquidation refunds and retry, terminal-ticket protection, bad-debt accounting, signed-payout reconciliation, oracle validation, and a two-provider chain-checked proof quorum. See:
+
+- [`phase-1-progress.md`](./phase-1-progress.md)
+- [`phase-1-security-fixes.md`](./phase-1-security-fixes.md)
+- [`phase-1-test-report.md`](./phase-1-test-report.md)
+- [`phase-1-operational-readiness.md`](./phase-1-operational-readiness.md)
+
 Read the full audit:
 
 - [`audit-report.md`](./audit-report.md) - summary, evidence, scorecard, release readiness.
