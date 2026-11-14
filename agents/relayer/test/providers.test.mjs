@@ -19,7 +19,7 @@ function proof(balance) {
   };
 }
 
-async function startRpc(balance) {
+async function startRpc(balance, chainId = "0xaa36a7") {
   const server = createServer((request, response) => {
     let body = "";
     request.on("data", (chunk) => {
@@ -28,7 +28,9 @@ async function startRpc(balance) {
     request.on("end", () => {
       const payload = JSON.parse(body);
       let result;
-      if (payload.method === "eth_getBlockByNumber") {
+      if (payload.method === "eth_chainId") {
+        result = chainId;
+      } else if (payload.method === "eth_getBlockByNumber") {
         result = BLOCK;
       } else if (payload.method === "eth_getProof") {
         result = proof(balance);
@@ -89,6 +91,36 @@ test("rejects insufficient quorum", async (t) => {
       providers: [first.url, "http://127.0.0.1:1"],
       minQuorum: 2,
     }),
-    /only 1\/2 providers succeeded/,
+    /only 1\/2 providers/,
+  );
+});
+
+test("rejects a single-provider proof configuration", async (t) => {
+  const first = await startRpc("0x64");
+  t.after(() => first.server.close());
+
+  await assert.rejects(
+    collectProof({
+      address: "0x0000000000000000000000000000000000000001",
+      providers: [first.url],
+      minQuorum: 1,
+    }),
+    /minQuorum must be at least 2/,
+  );
+});
+
+test("rejects a provider on the wrong chain", async (t) => {
+  const first = await startRpc("0x64");
+  const second = await startRpc("0x64", "0x1");
+  t.after(() => first.server.close());
+  t.after(() => second.server.close());
+
+  await assert.rejects(
+    collectProof({
+      address: "0x0000000000000000000000000000000000000001",
+      providers: [first.url, second.url],
+      minQuorum: 2,
+    }),
+    /only 1\/2 providers on Sepolia/,
   );
 });

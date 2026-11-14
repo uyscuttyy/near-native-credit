@@ -154,3 +154,63 @@ export function estimateSeizedWei({
     (repayUsd1e8 * (BPS + BigInt(penaltyBps))) / BPS * 10n ** 18n / ethPrice1e8;
   return seizedWei > collateralWei ? collateralWei : seizedWei;
 }
+export function maxRepayUsdc({
+  collateralWei,
+  ethPrice1e8,
+  usdcPrice1e8,
+  penaltyBps,
+}) {
+  if (collateralWei <= 0n || ethPrice1e8 <= 0n || usdcPrice1e8 <= 0n) return 0n;
+  const collateralUsd1e8 = (collateralWei * ethPrice1e8) / 10n ** 18n;
+  const maxRepayUsd1e8 =
+    (collateralUsd1e8 * BPS) / (BPS + BigInt(penaltyBps));
+  return (maxRepayUsd1e8 * 1_000_000n) / usdcPrice1e8;
+}
+
+export function maxGasWei(config) {
+  if (!config?.gas_limit || !config?.max_fee_per_gas) return 0n;
+  return BigInt(config.gas_limit) * BigInt(config.max_fee_per_gas);
+}
+
+export function plannedLiquidation({
+  debtUsdc,
+  requestedUsdc,
+  collateralWei,
+  ethPrice1e8,
+  usdcPrice1e8,
+  penaltyBps,
+  gasReserveWei = 0n,
+}) {
+  const maxRepay = maxRepayUsdc({
+    collateralWei,
+    ethPrice1e8,
+    usdcPrice1e8,
+    penaltyBps,
+  });
+  const requested = requestedUsdc ?? debtUsdc;
+  const capped = requested < maxRepay ? requested : maxRepay;
+  const repay = capped < debtUsdc ? capped : debtUsdc;
+  const badDebt = repay === maxRepay && debtUsdc > repay ? debtUsdc - repay : 0n;
+  const withdrawableWei =
+    collateralWei > gasReserveWei ? collateralWei - gasReserveWei : 0n;
+  const estimatedSeizedWei = estimateSeizedWei({
+    repayUsdc: repay,
+    usdcPrice1e8,
+    ethPrice1e8,
+    penaltyBps,
+    collateralWei,
+  });
+  const seizedWei =
+    badDebt > 0n
+      ? withdrawableWei
+      : estimatedSeizedWei < withdrawableWei
+        ? estimatedSeizedWei
+        : withdrawableWei;
+  return {
+    max_repay_usdc: maxRepay,
+    repay_usdc: repay,
+    bad_debt_usdc: badDebt,
+    seized_wei: seizedWei,
+    capped_by_collateral: repay < requested,
+  };
+}

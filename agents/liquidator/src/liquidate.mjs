@@ -11,10 +11,11 @@ import {
   nearRpcUrl,
 } from "../../shared/near.mjs";
 import {
-  estimateSeizedWei,
   formatHealth,
   isLiquidatable,
   isPriceStale,
+  maxGasWei,
+  plannedLiquidation,
 } from "../../shared/risk.mjs";
 
 function shellQuote(value) {
@@ -152,16 +153,36 @@ export function planLiquidation({
       }
     }
   }
-  let repay = requested;
-  if (allowPartial && balance !== undefined && balance !== null) {
-    repay = requested < BigInt(balance) ? requested : BigInt(balance);
-  }
-  const estimatedSeizedWei = estimateSeizedWei({
-    repayUsdc: repay,
-    usdcPrice1e8: BigInt(price.usdc_usd_1e8),
-    ethPrice1e8: BigInt(price.eth_usd_1e8),
-    penaltyBps: Number(config.liquidation_penalty_bps),
+  const plan = plannedLiquidation({
+    debtUsdc: debt,
+    requestedUsdc: requested,
     collateralWei: BigInt(position.collateral_wei),
+    ethPrice1e8: BigInt(price.eth_usd_1e8),
+    usdcPrice1e8: BigInt(price.usdc_usd_1e8),
+    penaltyBps: Number(config.liquidation_penalty_bps),
+    gasReserveWei: maxGasWei(config),
+  });
+  let repay = plan.repay_usdc;
+  if (balance !== undefined && balance !== null && repay > BigInt(balance)) {
+    if (!allowPartial) {
+      return {
+        ok: false,
+        reason: `USDC balance ${balance} is below collateral-capped repayment ${repay}; pass --partial to cap`,
+      };
+    }
+    repay = BigInt(balance);
+  }
+  if (repay <= 0n) {
+    return { ok: false, reason: "collateral cannot support a liquidation repayment" };
+  }
+  const finalPlan = plannedLiquidation({
+    debtUsdc: debt,
+    requestedUsdc: repay,
+    collateralWei: BigInt(position.collateral_wei),
+    ethPrice1e8: BigInt(price.eth_usd_1e8),
+    usdcPrice1e8: BigInt(price.usdc_usd_1e8),
+    penaltyBps: Number(config.liquidation_penalty_bps),
+    gasReserveWei: maxGasWei(config),
   });
   return {
     ok: true,
@@ -170,10 +191,13 @@ export function planLiquidation({
     health: String(health),
     health_label: formatHealth(health),
     debt_usdc: debt.toString(),
+    max_repay_usdc: plan.max_repay_usdc.toString(),
     repay_usdc: repay.toString(),
+    bad_debt_usdc: finalPlan.bad_debt_usdc.toString(),
     collateral_wei: position.collateral_wei,
-    estimated_seized_wei: estimatedSeizedWei.toString(),
-    partial: repay < requested,
+    estimated_seized_wei: finalPlan.seized_wei.toString(),
+    partial: repay < debt,
+    capped_by_collateral: plan.capped_by_collateral,
   };
 }
 

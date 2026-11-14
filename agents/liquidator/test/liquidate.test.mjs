@@ -12,6 +12,8 @@ const config = {
   max_oracle_age_secs: 300,
   liquidation_penalty_bps: 800,
   risk_off: false,
+  gas_limit: 250000,
+  max_fee_per_gas: "2000000000",
 };
 const price = {
   eth_usd_1e8: "300000000000",
@@ -132,4 +134,30 @@ test("displayCommand quotes JSON arguments", () => {
   const text = displayCommand(built);
   assert.match(text, /ft_transfer_call/);
   assert.match(text, /position_id/);
+});
+
+test("caps repayment at collateral value and reports bad debt", () => {
+  const result = plan({
+    position: { ...position, debt_usdc: "4800000" },
+    price: { ...price, eth_usd_1e8: "10000000000" },
+    balance: "4800000",
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.max_repay_usdc, "4629629");
+  assert.equal(result.repay_usdc, "4629629");
+  assert.equal(result.bad_debt_usdc, "170371");
+  assert.equal(result.estimated_seized_wei, "49500000000000000");
+  assert.equal(result.capped_by_collateral, true);
+});
+
+test("partial balance below the collateral cap creates no bad debt", () => {
+  const result = plan({
+    price: { ...price, eth_usd_1e8: "10000000000" },
+    balance: "4000000",
+    allowPartial: true,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.repay_usdc, "4000000");
+  assert.equal(result.bad_debt_usdc, "0");
+  assert.equal(result.estimated_seized_wei, "43200000000000000");
 });

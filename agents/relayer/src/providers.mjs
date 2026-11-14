@@ -2,6 +2,8 @@ export const DEFAULT_PROVIDERS = [
   "https://sepolia.rpc.thirdweb.com",
   "https://eth-sepolia.api.onfinality.io/public",
 ];
+export const SEPOLIA_CHAIN_ID_HEX = "0xaa36a7";
+export const MIN_PROOF_QUORUM = 2;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -145,26 +147,58 @@ export async function collectProof({
   address,
   providers,
   blockTag = "finalized",
-  minQuorum = 2,
+  minQuorum = MIN_PROOF_QUORUM,
 }) {
-  if (minQuorum < 1) {
-    throw new Error("minQuorum must be at least 1");
+  if (!Number.isInteger(minQuorum) || minQuorum < MIN_PROOF_QUORUM) {
+    throw new Error(`minQuorum must be at least ${MIN_PROOF_QUORUM}`);
   }
-  const reference = await resolveReferenceBlock(providers, blockTag);
+  if (providers.length < minQuorum) {
+    throw new Error(
+      `only ${providers.length}/${minQuorum} providers configured`,
+    );
+  }
+  const chainChecks = await Promise.allSettled(
+    providers.map((endpoint) => rpcRequest(endpoint, "eth_chainId", [])),
+  );
+  const chainProviders = [];
+  const failures = [];
+  for (let index = 0; index < chainChecks.length; index += 1) {
+    const check = chainChecks[index];
+    if (check.status !== "fulfilled") {
+      failures.push({
+        provider: providerLabel(providers[index]),
+        error: `eth_chainId failed: ${check.reason?.message ?? check.reason}`,
+      });
+      continue;
+    }
+    if (String(check.value).toLowerCase() !== SEPOLIA_CHAIN_ID_HEX) {
+      failures.push({
+        provider: providerLabel(providers[index]),
+        error: `wrong chain id: ${check.value}`,
+      });
+      continue;
+    }
+    chainProviders.push(providers[index]);
+  }
+  if (chainProviders.length < minQuorum) {
+    throw new Error(
+      `only ${chainProviders.length}/${minQuorum} providers on Sepolia: ${JSON.stringify(failures)}`,
+    );
+  }
+  const reference = await resolveReferenceBlock(chainProviders, blockTag);
   const settled = await Promise.allSettled(
-    providers.map((endpoint) =>
+    chainProviders.map((endpoint) =>
       fetchSnapshot(endpoint, address, reference.block.number),
     ),
   );
   const snapshots = [];
-  const failures = [];
   for (let index = 0; index < settled.length; index += 1) {
     const result = settled[index];
     if (result.status === "fulfilled") {
       snapshots.push(result.value);
     } else {
       failures.push({
-        provider: providerLabel(providers[index]),
+        provider: providerLabel(chainProviders[index]),
         error: result.reason?.message ?? String(result.reason),
       });
     }

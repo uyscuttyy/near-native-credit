@@ -10,7 +10,11 @@ import {
   verifyHeaderRlp,
 } from "./ethereum.mjs";
 import { DEFAULT_LIGHT_CLIENT, verifySafeBlockHash } from "./light-client.mjs";
-import { collectProof, resolveProviders } from "./providers.mjs";
+import {
+  MIN_PROOF_QUORUM,
+  collectProof,
+  resolveProviders,
+} from "./providers.mjs";
 
 function hostOf(endpoint) {
   try {
@@ -30,7 +34,7 @@ function usage() {
     "  --method <name>       record_deposit (default) or confirm_withdrawal",
     "  --block <tag>         finalized (default), latest, or a block number",
     "  --providers <urls>    Comma-separated RPC URLs",
-    "  --min-quorum <n>      Required successful providers (default: 2)",
+    "  --min-quorum <n>      Required successful providers (minimum/default: 2)",
     "  --light-client <id>   NEAR light client (default: client-eth2.sepolia.testnet)",
     "  --near-rpc <url>      NEAR RPC URL",
     "  --no-check-finality   Skip the light-client preflight",
@@ -68,9 +72,12 @@ async function main() {
 
   const address = normalizeAddress(values.address);
   const providers = resolveProviders(values.providers);
-  const minQuorum = Number.parseInt(values["min-quorum"] ?? "2", 10);
-  if (!Number.isInteger(minQuorum) || minQuorum < 1) {
-    throw new Error("--min-quorum must be a positive integer");
+  const minQuorum = Number.parseInt(
+    values["min-quorum"] ?? String(MIN_PROOF_QUORUM),
+    10,
+  );
+  if (!Number.isInteger(minQuorum) || minQuorum < MIN_PROOF_QUORUM) {
+    throw new Error(`--min-quorum must be at least ${MIN_PROOF_QUORUM}`);
   }
   const method = values.method ?? "record_deposit";
   if (method !== "record_deposit" && method !== "confirm_withdrawal") {

@@ -7,6 +7,8 @@ const config = {
   max_oracle_age_secs: 300,
   liquidation_penalty_bps: 800,
   risk_off: false,
+  gas_limit: 250000,
+  max_fee_per_gas: "2000000000",
 };
 const price = {
   eth_usd_1e8: "300000000000",
@@ -113,4 +115,19 @@ test("table rendering includes the candidate state", () => {
     }),
   ]);
   assert.match(text, /LIQUIDATABLE/);
+});
+
+test("underwater collateral reports the max repay and expected bad debt", () => {
+  const row = classifyPosition({
+    positionId: 1,
+    position: { ...position, debt_usdc: "4800000" },
+    health: "9000",
+    price: { ...price, eth_usd_1e8: "10000000000" },
+    config,
+    nowSeconds: now,
+  });
+  assert.equal(row.liquidatable, true);
+  assert.equal(row.max_repay_usdc, "4629629");
+  assert.equal(row.expected_bad_debt_usdc, "170371");
+  assert.equal(row.estimated_seized_wei, "49500000000000000");
 });

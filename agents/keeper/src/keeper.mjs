@@ -9,11 +9,12 @@ import {
   parsePositionList,
 } from "../../shared/near.mjs";
 import {
-  estimateSeizedWei,
   formatHealth,
   isLiquidatable,
   isNearLiquidation,
   isPriceStale,
+  maxGasWei,
+  plannedLiquidation,
   priceAgeSeconds,
 } from "../../shared/risk.mjs";
 
@@ -32,14 +33,21 @@ export function classifyPosition({
   const liquidatable = !stale && debt > 0n && isLiquidatable(health);
   const near = !stale && debt > 0n && isNearLiquidation(health);
   let estimatedSeizedWei = 0n;
+  let maxRepayUsdc = 0n;
+  let expectedBadDebtUsdc = 0n;
   if (liquidatable && debt > 0n && price) {
-    estimatedSeizedWei = estimateSeizedWei({
-      repayUsdc: debt,
-      usdcPrice1e8: BigInt(price.usdc_usd_1e8),
-      ethPrice1e8: BigInt(price.eth_usd_1e8),
-      penaltyBps: Number(config.liquidation_penalty_bps),
+    const plan = plannedLiquidation({
+      debtUsdc: debt,
+      requestedUsdc: debt,
       collateralWei: collateral,
+      ethPrice1e8: BigInt(price.eth_usd_1e8),
+      usdcPrice1e8: BigInt(price.usdc_usd_1e8),
+      penaltyBps: Number(config.liquidation_penalty_bps),
+      gasReserveWei: maxGasWei(config),
     });
+    estimatedSeizedWei = plan.seized_wei;
+    maxRepayUsdc = plan.max_repay_usdc;
+    expectedBadDebtUsdc = plan.bad_debt_usdc;
   }
   return {
     position_id: positionId,
@@ -49,6 +57,8 @@ export function classifyPosition({
     health_label: formatHealth(health),
     debt_usdc: debt.toString(),
     collateral_wei: collateral.toString(),
+    max_repay_usdc: maxRepayUsdc.toString(),
+    expected_bad_debt_usdc: expectedBadDebtUsdc.toString(),
     price_age_secs: priceAgeSeconds(price, nowSeconds),
     price_stale: stale,
     risk_off: Boolean(config.risk_off),
