@@ -161,9 +161,29 @@ Executed on 2026-11-14 in tx `45XzfjBwYcaAWHRrqoEJ8s5yGYmrKt32SDPQPfmbM3Yz`; ret
 4. Rotate keys only through an approved admin process; there is no timelock or rotation helper in this phase.
 5. Do not lower the oracle threshold to work around missing signers.
 
+### 6. Rollback dry-run (executed, 2026-11-14)
+
+- Rollback target for the cleanup deployment is the saved Phase 1 wasm
+  `/tmp/v2-phase1-before-cleanup.wasm` (`640731` bytes, sha256
+  `eb38435bc056d835543787bf9f3c89ee32e2330f2f0f97a17a40dc5130a2c124`, code hash
+  `GqCZxy7v4eZp1HH8sdqpMgpbENxUVtMscabZQp4oEE6f`); it contains the already-executed one-time
+  `migrate_legacy_ticket` path, but the storage guard makes it inert.
+- Verified the saved wasm against the recorded previous code hash.
+- Exported live state before and after the cleanup deployment:
+  `/tmp/v2-state-pre-cleanup.json` and `/tmp/v2-state-post-cleanup.json` are byte-for-byte
+  identical (`sha256 f31e0a31d20de53fd8cefe29d05334b0ca7e632455d3c576f552c1d3a204cf71`), so the
+  cleanup upgrade changed no storage values.
+- Verified the exported state includes the contract `STATE` entry, position `1`, the active deposit
+  address, the legacy migration storage flag, and valid base64 records.
+- Verified the cleanup wasm is deployed (`sha256
+  b03c68feda95671773ec1992579ccb3843dd18743d25bfcc76279052933e9a91`, code hash
+  `CrxBYhxfBqcFgc7hh9dekdhNRoPLu52cQNt82QChGz7z`) and no longer contains the string
+  `migrate_legacy_ticket`.
+- Live rollback, if ever needed, is a deliberate separate action: deploy the saved Phase 1 wasm,
+  re-verify `get_config()`/`get_position(1)`, and keep the state export as the audit record.
+
 ## Operational risks
 
-- Two-provider live proof generation is not yet re-validated.
 - Public Sepolia RPCs can rate limit, lag, or reject finalized proofs.
 - The oracle remains centralized and team-operated.
 - The custom consensus-critical verifier has no fuzzing or formal assurance.
@@ -183,5 +203,5 @@ Executed on 2026-11-14 in tx `45XzfjBwYcaAWHRrqoEJ8s5yGYmrKt32SDPQPfmbM3Yz`; ret
 - [x] Live v2 withdrawal reconciled with a finality proof.
 - [x] Live v1 `NeedsReview` investigated and funds recovered.
 - [x] Cleanup wasm deployed; saved rollback wasm/state are available.
-- [ ] Rollback plan rehearsed.
+- [x] Rollback dry-run rehearsed and recorded; no live rollback was performed.
 - [ ] Monitoring/alerts configured for refunds, `NeedsReview`, failed payouts, and stale prices.

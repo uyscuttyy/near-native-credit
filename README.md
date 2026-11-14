@@ -252,9 +252,7 @@ Before any further live user-facing action:
 
 1. Add monitoring/alerts for refunds, `NeedsReview`, failed payouts, and stale prices.
 2. Document and rehearse rollback with the saved pre-upgrade wasm and state export.
-3. Add monitoring/alerts for refunds, `NeedsReview`, failed payouts, and stale prices.
-4. Document and rehearse rollback with the saved pre-upgrade wasm and state export.
-5. Assign owners for the remaining Medium/Low audit findings and keep the docs synchronized with verified live state.
+3. Assign owners for the remaining Medium/Low audit findings and keep the docs synchronized with verified live state.
 
 See [`recommended-roadmap.md`](./recommended-roadmap.md) for the P0/P1/P2/P3 sequence.
 
