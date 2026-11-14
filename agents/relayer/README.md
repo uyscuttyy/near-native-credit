@@ -69,7 +69,7 @@ accounts exist:
 
 ```sh
 npm run submit -- \
-  --contract native-credit.testnet \
+  --contract v2.native-credit.testnet \
   --args /tmp/deposit-args.json \
   --signer relayer.testnet
 ```
@@ -79,7 +79,7 @@ command line or stored by this package. Preview the exact command first:
 
 ```sh
 npm run submit -- \
-  --contract native-credit.testnet \
+  --contract v2.native-credit.testnet \
   --args /tmp/deposit-args.json \
   --signer relayer.testnet \
   --dry-run
@@ -106,7 +106,7 @@ The NEAR contract must already have a `pending_withdrawal` with `raw_tx` and
 
 ```sh
 npm run broadcast -- \
-  --contract native-credit.testnet \
+  --contract v2.native-credit.testnet \
   --position 1 \
   --dry-run
 ```
@@ -115,7 +115,7 @@ Then broadcast:
 
 ```sh
 npm run broadcast -- \
-  --contract native-credit.testnet \
+  --contract v2.native-credit.testnet \
   --position 1
 ```
 
@@ -144,7 +144,7 @@ After submitting a proof or broadcasting a withdrawal, poll the contract view
 until the pending operation clears:
 
 ```sh
-npm run reconcile -- --contract native-credit.testnet --position 1
+npm run reconcile -- --contract v2.native-credit.testnet --position 1
 ```
 
 Options:

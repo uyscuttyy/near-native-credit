@@ -1,7 +1,7 @@
 # HANDOFF.md
 
-Status: **Phase 1 live: deposit, borrow, and repay completed; withdrawal broadcast and awaiting Sepolia finality.**
-Last updated: 2026-11-05
+Status: **Historical run log. Phase 1 v2 completed through liquidation, and the final fresh-EOA withdrawal succeeded on Sepolia and awaits NEAR confirmation. See `README.md` and `audit-report.md` for the current live state and open findings.**
+Last updated: 2026-11-07
 
 ## What exists
 
@@ -17,13 +17,21 @@ Last updated: 2026-11-05
 - `agents/relayer/` - public-RPC proof generation, light-client preflight,
   contract-argument export, raw-transaction broadcast, submit, and reconcile.
 - `agents/oracle/` - 2-of-3 Ed25519 price signer and `update_price` submitter.
+- `agents/shared/` - shared NEAR view helpers and pure risk/health helpers.
+- `agents/watcher/` - read-only alerts for stale oracle, near/liquidatable
+  health, `NeedsReview`, pending operations, Sepolia receipt status, and
+  raw-tx/hash mismatches.
+- `agents/keeper/` - read-only range scanner that ranks liquidation candidates.
+- `agents/liquidator/` - dry-run liquidation planner; sends only with
+  `--execute` and can register a Sepolia payout address first.
 - `web/` - Vite + React dashboard with MyNearWallet connection, live NEAR RPC
   reads, position actions, pending-operation state, and real/simulated labels.
-- Empty scaffold for `agents/watcher/`, `agents/keeper/`, `agents/liquidator/`,
-  `scripts/`, `docs/`.
-- `native-credit.testnet` is deployed and initialized; position `1` exists,
-  owned by the dedicated borrower account `borrower.native-credit.testnet`.
-- No git repository, no commits, no remote, and no public push yet.
+- `AUDIT/` - independent audit baseline and a live-evidence follow-up.
+- `v2.native-credit.testnet` is deployed and initialized; position `1` exists,
+  owned by `borrower.native-credit.testnet`. The retired v1 contract remains at
+  `native-credit.testnet` for historical evidence.
+- Git repository exists at commit `f8241dc`. No baseline tag is present. This
+  run log predates the first public push; see `README.md` for current state.
 
 ## Local implementation
 
@@ -42,7 +50,7 @@ Last updated: 2026-11-05
 - internal liquidation tickets and registered Sepolia payout addresses;
 - 2-of-3-compatible Ed25519 price quorum (currently configurable, team-operated);
 - owner/guardian risk-off, owner-only guardian and stuck-proof recovery;
-- views for config, position, price, and health factor.
+- views for config, position, owner positions, price, and health factor.
 
 Key guardrails implemented:
 
@@ -134,38 +142,80 @@ npm run build
 
 ## Verified now
 
-1. `cargo test -p native-credit`: **31 tests pass**.
+1. `cargo test -p native-credit`: **38 tests pass** (36 unit + 2 local E2E).
 2. `cargo clippy -p native-credit --all-targets -- -D warnings`: clean.
 3. `cargo build -p native-credit --target wasm32-unknown-unknown --release`:
-   succeeds; wasm is `601264` bytes, sha256
-   `ca03505b5e6aa23601cbaa46848eecdf74d24b2be366b0baa48312e295d6f143`,
-   code hash `EbaHaLfHMuNuoSGhWBfMMJtKqBjhruryaZ31YJwVJu1C`.
+   succeeds. `v2.native-credit.testnet` now runs the upgraded `609491`-byte wasm,
+   sha256 `345e1c91175345e78fc5b49c4ea6b9b18f06ed9de7dd3fbb9447264b7f330efd`,
+   code hash `4XRS7nEZJqD6JC5zbE35xMn2gG1D1PVi7yZrChHjxx3N`, deployed in tx
+   `AoaLM6MDSS2nsziqgmmgwhmjpAA65KdmMGCv7gYGBoJT`. The previous deployed v2 was
+   `605982` bytes, code hash `8R8LwzDfAtcLipoAiyyxfLsKhvJC8QWoGpiCpkKSBznR`; the
+   retired v1 contract ran the earlier `601264`-byte wasm.
 4. `npm test` in `agents/relayer`: **24 tests pass**.
 5. `npm test` in `agents/oracle`: **4 tests pass**; live `update_price`
    succeeded with 3-of-3 signatures, threshold 2.
 6. Live proof generation with two public providers succeeded at finalized
    Sepolia block `12065248`; the header hash matched the NEAR light client via
    `block_hash_safe`.
-7. Deployed `native-credit.testnet`:
-   - owner/guardian `native-credit.testnet`;
+7. Deployed `v2.native-credit.testnet`:
+   - owner `v2.native-credit.testnet`; guardian `native-credit.testnet`;
    - config uses USDC `3e2210...b8af`, `client-eth2.sepolia.testnet`,
-     `v1.signer-prod.testnet`, chain id `11155111`;
+     `v1.signer-prod.testnet`, chain id `11155111`, `gas_limit=250000` after
+     the in-place upgrade;
+   - USDC storage registration is funded;
+   - oracle sequence `1` at `3000e8` ETH/USD and `1e8` USDC/USD;
    - position `1` has deposit address
-     `0xec29df4cf529cf8be4fbc8380cf732cff82389bc`;
-   - `create_position` tx
-     `BGhXuqdD6J5BrYPZQjyQvZ4QFx49VRDcuWpbS48bK63o`.
-8. Live lifecycle on position `1`:
+     `0x81163cfa3c95b3691fdb4fb0766ecafcfa267999`;
+   - position creation was submitted with `0.02 NEAR` storage attached;
+   - the owner raised the live gas limit from `60000` to `250000` with
+     `set_gas_limit` in tx `FF9QM6yfBFhHTheWvUuT5W9cJe4KStnPjvqUTHz9cRLp`;
+   - live deposit proof tx
+     `9MfPsqDmXfHPkNxbxNsHAkQ3b9PXRBDtW3VgbL1sJL5d` credited `0.05` ETH;
+   - `borrower` borrowed `10 USDC` (tx
+     `8UJixg1jFukkEPp93KzgG6Vu1vEDfE98vVV7jeNsBdjp`) and repaid it (tx
+     `B5BaDvaqNths4BRD4hjnYagFseyR3jjGqT21N3U6yP2w`);
+   - a `0.01` ETH withdrawal to fresh `0x0d5d...b8fa6` broadcast as
+     `0x66a3a1e2e4cb7a5d70ec55ac10a0fea97255bf077035a04ef2396c70fd7fc74d`
+     failed at block `12080523` with status `0x0` and `gasUsed=60000`;
+     `confirm_withdrawal` settled it as failed (tx
+     `EWTC7kyUXzcjC4WdjBmBNKJUXjTXYvf69ZnqBpcRbk83`);
+   - a second `0.01` ETH withdrawal to the existing EOA `0xec29...89bc`
+     succeeded at block `12080627` with `gasUsed=21000` (tx
+     `0x0ce9ccdf7abacfd77b4d4569e46ea3dcefb512034a66d68b4e180b42d2d4ca40`)
+     and settled with tx `8aSvnnnJ8NroiUUr6WXhiUgSCoGhrrK5SsUL9iHKDWHK`;
+   - a controlled liquidation repaid `10 USDC` and seized `0.036` ETH (tx
+     `22ckDtWYQisemyHZbhRsUj4AxX9TKfPbfaHQVXAY9p8v`; Sepolia tx
+     `0x979441e8c1ea57fefa77743b223332eb9c2a3ec9895de84f648a28c9124f8109`),
+     settled with tx `CZtEnZMN5GEYPvMNzqayU8bHUSVPZ4wvd8Db4BiPPMAQ`.
+8. Retired v1 lifecycle on `native-credit.testnet` position `1`:
    - user funded `0.05` Sepolia ETH; proof at finalized block `12067871`
      credited `collateral_wei=50000000000000000`;
    - USDC was registered for the contract and borrower, then `borrower`
      borrowed `10 USDC`; debt reached `10000000`, health `120000` bps;
    - borrower repaid all `10 USDC` via `ft_transfer_call`, tx
      `CW8wW3p1QvakoXQDDcx8jgUyztaf4daFGFmL2b6awHLo`; debt returned to `0`;
-   - `borrower` owns position `1` after `transfer_position`; withdrawal of
-     `0.01` ETH was signed by MPC and broadcast as Sepolia tx
-     `0x671d78716a1bcfc79931b78d2764d340cd85e866e2df902ad1ae9e8ba0b72362`
-     in block `12068099`; confirmation is pending finality.
-9. Real captured Sepolia vectors:
+   - `borrower` owns position `1` after `transfer_position`. The first
+     `0.01` ETH withdrawal attempt was a self-transfer to the deposit address
+     (`0x671d...b72362`), so it moved no net ETH.
+   - A second attempt to fresh payout address `0x0d5d...b8fa6` was broadcast as
+     `0x63e95e272ff6b4eb1f74c8ca814b0894a8d3f68eb7b845e546aea00319f298c2`
+     and failed on Sepolia at block `12068212` with status `0x0` and
+     `gasUsed=21000`; the recipient balance remained zero.
+   - `confirm_withdrawal` settled the failed attempt. Position `1` is now
+     `Idle` with `collateral_wei=49966999999448000`,
+     `last_verified_nonce=2`, and `last_verified_block=12078967`. Only gas left
+     the collateral account. See `AUDIT/FOLLOWUP.md`.
+9. Agent checks:
+   - `agents/watcher`: **16 tests pass**;
+   - `agents/keeper`: **7 tests pass**;
+   - `agents/liquidator`: **10 tests pass**.
+10. Final live v2 state: position `1` is `Idle`, debt `0`,
+    `collateral_wei=3897999998392000`, `last_verified_nonce=3`,
+    `last_verified_block=12080729`, liquidation ticket `Settled`, and oracle
+    sequence `6` at `$3000` ETH/USD. The contract holds `20 USDC`. Watcher and
+    keeper report no alerts; the liquidator dry run refuses because health is
+    infinite.
+11. Real captured Sepolia vectors:
    - `testdata/sepolia_12058306.json` - 688-byte header RLP, state root,
      EOA proof for `0x...01`, USDC contract proof, derived-address absence proof.
    - `testdata/sepolia_tx_12058498.json` - real finalized Sepolia EIP-1559
@@ -178,16 +228,17 @@ npm run build
 
 ## Next steps
 
-1. Wait for Sepolia finality, generate a `confirm_withdrawal` proof, and submit
-   it to settle position `1`.
-2. Add mock light-client/MPC contracts and `near-workspaces` integration tests
-   for promise wiring and gas.
-3. Build the watcher, keeper, and liquidator agents.
-4. Build the Next.js frontend with deposit QR, pending/needs-review states,
-   health factor, oracle age, risk-off, and trust labels.
-5. Run mutation tests: remove each guard and show the failing test.
-6. Write demo script, threat model, submission payload; ask owner to confirm
-   before submitting.
+1. Top up v2 position `1` above the `0.01 ETH` minimum withdrawal, then retry
+   the fresh-EOA withdrawal to `0x0d5d...b8fa6` and confirm the recipient
+   balance increases. The live contract already uses `250000` gas.
+2. Update the dashboard from the seeded v1 demo to the v2 position and replace
+   hardcoded v1 transaction links with live pending/history data.
+3. Extend the local E2E harness to a `near-workspaces` setup with mock
+   light-client/MPC contracts for real promise wiring and gas. The current
+   `tests/local_e2e.rs` covers the full lifecycle with mocked promise results.
+4. Run mutation tests: remove each guard and show the failing test.
+5. Write the demo script, threat model, and submission payload; ask the owner to
+   confirm before publishing.
 
 ## Gotchas
 
@@ -215,5 +266,11 @@ npm run build
 - USDC `ft_transfer` rejects sender == receiver, so the position owner must be
   a different account from the lending contract.
 - New USDC recipients need a `storage_deposit` before a borrow transfer.
+- Sepolia now applies EIP-8037 state gas. Creating a new account costs `183600`
+  state gas, so a fresh-EOA transfer estimates at ~`207391` total; v1's `21000`
+  and the original v2 `60000` both fail. An existing EOA still costs `21000`.
+  Live v2 was upgraded to `250000`; the fresh-address retry is still pending.
+- The audit's live chain-id finding is not reproducible: `get_config` returns
+  `chain_id=11155111`.
 - Do not push, make the repo public, or submit the hackathon form without the
   owner's explicit confirmation.

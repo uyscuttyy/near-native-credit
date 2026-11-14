@@ -15,6 +15,11 @@ const ONE_YOCTO: u128 = 1;
 const MAX_DERIVED_KEY_LEN: usize = 256;
 const MAX_SIGN_RESPONSE_LEN: usize = 4_096;
 const MAX_BLOCK_HASH_LEN: usize = 33;
+// Sepolia now applies EIP-8037 state gas: creating a new EOA adds 183,600 gas
+// on top of 21,000 intrinsic execution gas, for ~207,391 estimated total. Keep
+// a buffer above that. The deployed v2 contract still uses 60,000 and can only
+// withdraw to an existing EOA.
+const MIN_WITHDRAWAL_GAS_LIMIT: u64 = 250_000;
 
 #[derive(BorshStorageKey)]
 #[near(serializers = [borsh])]
@@ -193,7 +198,7 @@ impl Contract {
             );
         }
         require!(
-            config.gas_limit > 0
+            config.gas_limit >= MIN_WITHDRAWAL_GAS_LIMIT
                 && config.max_fee_per_gas.0 > 0
                 && config.max_priority_fee_per_gas.0 <= config.max_fee_per_gas.0,
             "invalid gas config"
@@ -812,9 +817,7 @@ impl Contract {
             if key.curve_type() != CurveType::ED25519 {
                 continue;
             }
-            let key_bytes: [u8; 32] = key.as_bytes()[1..]
-                .try_into()
-                .expect("ed25519 key length");
+            let key_bytes: [u8; 32] = key.as_bytes()[1..].try_into().expect("ed25519 key length");
             let mut signature_bytes = [0u8; 64];
             signature_bytes.copy_from_slice(&signature);
             if env::ed25519_verify(&signature_bytes, &message, &key_bytes) {
@@ -843,6 +846,19 @@ impl Contract {
             "owner only"
         );
         self.config.guardian = guardian;
+    }
+
+    pub fn set_gas_limit(&mut self, gas_limit: u64) {
+        require!(
+            env::predecessor_account_id() == self.config.owner,
+            "owner only"
+        );
+        let max_gas_wei = (gas_limit as u128).saturating_mul(self.config.max_fee_per_gas.0);
+        require!(
+            gas_limit >= MIN_WITHDRAWAL_GAS_LIMIT && self.config.min_withdrawal_wei.0 > max_gas_wei,
+            "invalid gas config"
+        );
+        self.config.gas_limit = gas_limit;
     }
 
     pub fn clear_stuck_proof(&mut self, position_id: u64) {
@@ -875,6 +891,18 @@ impl Contract {
 
     pub fn get_position(&self, position_id: u64) -> Position {
         self.positions.get(&position_id).expect("position").clone()
+    }
+
+    pub fn get_positions_by_owner(&self, owner: AccountId) -> Vec<Position> {
+        let mut positions = Vec::new();
+        for position_id in 1..self.next_position_id {
+            if let Some(position) = self.positions.get(&position_id) {
+                if position.owner == owner {
+                    positions.push(position.clone());
+                }
+            }
+        }
+        positions
     }
 
     pub fn get_price(&self) -> Option<Price> {
@@ -1130,7 +1158,7 @@ mod tests {
             min_borrow_usdc: U128(1_000_000),
             risk_off: false,
             chain_id: 11155111,
-            gas_limit: 21_000,
+            gas_limit: 250_000,
             max_fee_per_gas: U128(2_000_000_000),
             max_priority_fee_per_gas: U128(1_000_000_000),
         }
@@ -1146,7 +1174,7 @@ mod tests {
     }
 
     #[test]
-    fn init_accepts_deployed_config() {
+    fn init_accepts_v3_gas_config() {
         let json = r#"{
           "owner": "native-credit.testnet",
           "guardian": "native-credit.testnet",
@@ -1168,7 +1196,7 @@ mod tests {
           "min_borrow_usdc": "1000000",
           "risk_off": false,
           "chain_id": 11155111,
-          "gas_limit": 21000,
+          "gas_limit": 250000,
           "max_fee_per_gas": "2000000000",
           "max_priority_fee_per_gas": "1000000000"
         }"#;
@@ -1181,6 +1209,52 @@ mod tests {
     }
 
     #[test]
+    fn withdrawal_gas_limit_covers_new_account_transfer() {
+        let cfg = config("owner.testnet".parse().unwrap());
+        assert!(cfg.gas_limit >= MIN_WITHDRAWAL_GAS_LIMIT);
+        assert_eq!(cfg.gas_limit, 250_000);
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid gas config")]
+    fn init_rejects_v2_gas_limit() {
+        let mut cfg = config("owner.testnet".parse().unwrap());
+        cfg.gas_limit = 60_000;
+        let ctx = context("owner.testnet", 0);
+        testing_env!(ctx.build());
+        Contract::new(cfg);
+    }
+
+    #[test]
+    fn owner_can_raise_deployed_v2_gas_limit() {
+        let owner: AccountId = "owner.testnet".parse().unwrap();
+        testing_env!(context("owner.testnet", 0).build());
+        let mut contract = Contract::new(config(owner));
+        contract.config.gas_limit = 60_000;
+        contract.set_gas_limit(250_000);
+        assert_eq!(contract.get_config().gas_limit, 250_000);
+    }
+
+    #[test]
+    #[should_panic(expected = "owner only")]
+    fn non_owner_cannot_set_gas_limit() {
+        let owner: AccountId = "owner.testnet".parse().unwrap();
+        testing_env!(context("owner.testnet", 0).build());
+        let mut contract = Contract::new(config(owner));
+        testing_env!(context("attacker.testnet", 0).build());
+        contract.set_gas_limit(250_000);
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid gas config")]
+    fn gas_limit_setter_rejects_v2_value() {
+        let owner: AccountId = "owner.testnet".parse().unwrap();
+        testing_env!(context("owner.testnet", 0).build());
+        let mut contract = Contract::new(config(owner));
+        contract.set_gas_limit(60_000);
+    }
+
+    #[test]
     fn owner_can_transfer_an_idle_position() {
         let owner: AccountId = "alice.testnet".parse().unwrap();
         testing_env!(context("alice.testnet", 0).build());
@@ -1188,11 +1262,9 @@ mod tests {
         contract.positions.insert(
             1,
             Position {
-                owner,
+                owner: owner.clone(),
                 status: PositionStatus::Idle,
-                deposit_address: Some(
-                    "0x0000000000000000000000000000000000000002".to_string(),
-                ),
+                deposit_address: Some("0x0000000000000000000000000000000000000002".to_string()),
                 collateral_wei: U128(10u128.pow(18)),
                 last_verified_block: 100,
                 last_verified_nonce: 0,
@@ -1204,9 +1276,12 @@ mod tests {
                 liquidation_ticket: None,
             },
         );
+        contract.next_position_id = 2;
         let new_owner: AccountId = "bob.testnet".parse().unwrap();
         contract.transfer_position(1, new_owner.clone());
         assert_eq!(contract.get_position(1).owner, new_owner);
+        assert!(contract.get_positions_by_owner(owner).is_empty());
+        assert_eq!(contract.get_positions_by_owner(new_owner).len(), 1);
     }
 
     #[test]
@@ -1252,6 +1327,7 @@ mod tests {
         assert_eq!(position.owner, owner);
         assert_eq!(position.status, PositionStatus::Deriving);
         assert_eq!(contract.next_position_id, 2);
+        assert_eq!(contract.get_positions_by_owner(owner).len(), 1);
         assert_eq!(get_logs().len(), 0);
     }
 

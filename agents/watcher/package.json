@@ -1,0 +1,17 @@
+{
+  "name": "@native-credit/watcher",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Read-only anomaly watcher for Native Credit positions",
+  "scripts": {
+    "watch": "node src/watch.mjs",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "ethereum-cryptography": "3.2.0"
+  }
+}

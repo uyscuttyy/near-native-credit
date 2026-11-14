@@ -13,14 +13,17 @@ Run from `/home/uyscutty/projects/near`:
 cargo test -p native-credit
 cargo clippy -p native-credit --all-targets -- -D warnings
 cargo build -p native-credit --target wasm32-unknown-unknown --release
+cargo test -p native-credit --test local_e2e
 ```
 
-Expected: 31 tests pass, clippy is clean, and
+Expected: 38 tests pass (36 unit + 2 local E2E), clippy is clean, and
 `target/wasm32-unknown-unknown/release/native_credit.wasm` is produced.
-The current wasm is `601264` bytes, sha256
-`ca03505b5e6aa23601cbaa46848eecdf74d24b2be366b0baa48312e295d6f143`,
-with code hash `EbaHaLfHMuNuoSGhWBfMMJtKqBjhruryaZ31YJwVJu1C`; redeploying
-identical code produces the same hash.
+The upgraded `v2.native-credit.testnet` wasm is `609491` bytes, sha256
+`345e1c91175345e78fc5b49c4ea6b9b18f06ed9de7dd3fbb9447264b7f330efd`,
+with code hash `4XRS7nEZJqD6JC5zbE35xMn2gG1D1PVi7yZrChHjxx3N`. The previous
+deployed v2 was `605982` bytes, code hash
+`8R8LwzDfAtcLipoAiyyxfLsKhvJC8QWoGpiCpkKSBznR`; the retired v1 contract ran
+the earlier `601264`-byte wasm.
 
 The contract tests use captured real Sepolia data:
 
@@ -32,6 +35,7 @@ The contract tests use captured real Sepolia data:
 
 The key local assertions:
 
+- withdrawal gas validation requires at least 250,000, above the ~207,000 EIP-8037 fresh-account cost; live v2 now uses 250,000;
 - exact header hash/state root and proof verification;
 - contract accounts rejected, EOA accounts accepted;
 - absence proof accepted;
@@ -39,7 +43,12 @@ The key local assertions:
 - mismatched finality hash does not credit;
 - MPC-style signature from the position key builds a valid raw transaction;
 - signature from any other key cancels the withdrawal;
-- real EIP-1559 raw transaction bytes and sender recovery match Sepolia.
+- real EIP-1559 raw transaction bytes and sender recovery match Sepolia;
+- `tests/local_e2e.rs` drives create, derive, deposit, borrow, repay, withdraw,
+  confirm, and liquidation with synthetic single-leaf MPT proofs and mocked MPC
+  signatures/light-client hashes;
+- `get_positions_by_owner` discovers positions from the existing ID range without
+  changing contract state layout.
 
 ## 0a. Deployed contract
 
@@ -49,7 +58,7 @@ import json, urllib.request, base64
 def view(method, args={}):
     body = json.dumps({"jsonrpc":"2.0","id":1,"method":"query","params":{
         "request_type":"call_function","finality":"final",
-        "account_id":"native-credit.testnet","method_name":method,
+        "account_id":"v2.native-credit.testnet","method_name":method,
         "args_base64":base64.b64encode(json.dumps(args).encode()).decode()}}).encode()
     r = json.load(urllib.request.urlopen(urllib.request.Request(
         "https://rpc.testnet.near.org", data=body,
@@ -61,12 +70,14 @@ print(view("get_position", {"position_id": 1}))
 PY
 ```
 
-Expected: owner/guardian `native-credit.testnet`, the three Ed25519 oracle keys
-with threshold `2`, and position `1` owned by
-`borrower.native-credit.testnet` with `deposit_address`
-`0xec29df4cf529cf8be4fbc8380cf732cff82389bc`. Position `1` has
-`collateral_wei=50000000000000000`, `debt_usdc=0`, and a pending `0.01` ETH
-withdrawal until its Sepolia confirmation is submitted.
+Expected: owner `v2.native-credit.testnet`, guardian `native-credit.testnet`,
+`gas_limit=250000`, the three Ed25519 oracle keys with threshold `2`, and
+position `1` owned by `borrower.native-credit.testnet` with `deposit_address`
+`0x81163cfa3c95b3691fdb4fb0766ecafcfa267999`. Final live position `1` is
+`Idle` with `collateral_wei=3897999998392000`, `debt_usdc=0`, no pending
+operations, `last_verified_nonce=3`, `last_verified_block=12080729`, and a
+`Settled` liquidation ticket. Oracle sequence is `6` at `$3000` ETH/USD.
+The contract holds `20 USDC` after the deposit/borrow/repay/liquidate cycle.
 
 ## 0b. Relayer checks
 
@@ -84,8 +95,26 @@ number. With the default light-client preflight, the output's
 `light_client.matches` must be `true`. If the account is absent, the command
 warns and still writes a valid absence proof; regenerate after funding.
 
+On 2026-11-07 the default public providers rejected pinned finalized proofs
+with `distance to target block exceeds maximum proof window`; thirdweb returned
+HTTP 403. For the live run, use OnFinality with `--min-quorum 1` and an explicit
+`--block <n>` that the NEAR light client also reports safe:
+
+```sh
+npm run proof -- \
+  --address 0x81163cfa3c95b3691fdb4fb0766ecafcfa267999 \
+  --position 1 \
+  --providers https://eth-sepolia.api.onfinality.io/public \
+  --min-quorum 1 \
+  --block <safe-block> \
+  --out /tmp/deposit-proof.json \
+  --args-out /tmp/deposit-args.json
+```
+
+Single-provider quorum is a live-workaround, not the production trust model.
+
 For the live position, replace the example address with
-`0xec29df4cf529cf8be4fbc8380cf732cff82389bc` and keep `--position 1`. The
+`0x81163cfa3c95b3691fdb4fb0766ecafcfa267999` and keep `--position 1`. The
 submit builder normalizes a bare numeric deposit to `NEAR`; the real command
 must show `attached-deposit 0NEAR`.
 
@@ -95,7 +124,7 @@ under `contract_args`. Preview the submission command without sending it:
 
 ```sh
 npm run submit -- \
-  --contract native-credit.testnet \
+  --contract v2.native-credit.testnet \
   --args /tmp/deposit-args.json \
   --signer relayer.testnet \
   --dry-run
@@ -105,14 +134,24 @@ To check the signed withdrawal broadcast path without spending gas, run it
 against a deployed contract after a withdrawal has been signed:
 
 ```sh
-npm run broadcast -- --contract native-credit.testnet --position 1 --dry-run
+npm run broadcast -- --contract v2.native-credit.testnet --position 1 --dry-run
 ```
 
-The live withdrawal was broadcast as Sepolia tx
-`0x671d78716a1bcfc79931b78d2764d340cd85e866e2df902ad1ae9e8ba0b72362`.
-After finality, regenerate the account proof at the position address and submit
-`confirm_withdrawal`, then verify that `pending_withdrawal` is null and
-`collateral_wei` decreased by the withdrawal amount plus gas.
+Live v2 withdrawal evidence:
+
+- Fresh payout `0x0d5d...b8fa6`:
+  `0x66a3a1e2e4cb7a5d70ec55ac10a0fea97255bf077035a04ef2396c70fd7fc74d`
+  failed at block `12080523` with `gasUsed=60000` (status `0x0`). Sepolia
+  estimates ~`207391` gas because EIP-8037 charges `183600` state gas to create
+  the account.
+- Existing payout `0xec29...89bc`:
+  `0x0ce9ccdf7abacfd77b4d4569e46ea3dcefb512034a66d68b4e180b42d2d4ca40`
+  succeeded at block `12080627` with `gasUsed=21000`.
+
+The live v2 contract was then upgraded in place and its gas limit raised to
+`250000` (`set_gas_limit` tx
+`FF9QM6yfBFhHTheWvUuT5W9cJe4KStnPjvqUTHz9cRLp`). The fresh-EOA retry is pending
+a top-up above the `0.01 ETH` minimum. See `AUDIT/FOLLOWUP.md`.
 
 ## 0c. Oracle checks
 
@@ -120,7 +159,7 @@ After finality, regenerate the account proof at the position address and submit
 cd /home/uyscutty/projects/near/agents/oracle
 npm test
 ORACLE_KEYS_FILE="$HOME/.near-credentials/native-credit-oracle-keys.json" \
-  npm run update -- --contract native-credit.testnet --eth-usd 3000 --usdc-usd 1.00 --dry-run
+  npm run update -- --contract v2.native-credit.testnet --eth-usd 3000 --usdc-usd 1.00 --dry-run
 ```
 
 Expected: 4 tests pass, `signatures 3/2`, and a `near-cli` command with
@@ -139,13 +178,37 @@ npm run build
 npm run dev
 ```
 
-Expected: the production build succeeds. Open the dev server, connect a
-MyNearWallet testnet account, and confirm that position `1` renders with
-`0.05` ETH collateral, zero debt, a pending `0.01` ETH withdrawal, the live
-oracle sequence, and the risk parameters. The borrow and withdraw buttons stay
-disabled while the oracle is stale; repay remains available. The dashboard
-labels the light-client check as real, the team oracle as partly simulated, and
-test USDC as simulated.
+Expected: the production build succeeds. The dashboard still contains v1 demo
+copy, but it now defaults to `v2.native-credit.testnet`. Position `1` renders
+with `0.003897999998392` ETH collateral, zero debt, no pending operation,
+oracle sequence `6`, and the v2 risk parameters. The dashboard labels the
+light-client check as real, the team oracle as partly simulated, and test USDC
+as simulated.
+
+## 0e. Agent checks
+
+```sh
+cd /home/uyscutty/projects/near/agents/watcher
+npm install --no-audit --no-fund
+npm test
+npm run watch -- --contract v2.native-credit.testnet --positions 1 --json
+
+cd ../keeper
+npm test
+npm run keeper -- --contract v2.native-credit.testnet --positions 1 --json
+
+cd ../liquidator
+npm test
+npm run liquidate -- \
+  --contract v2.native-credit.testnet \
+  --usdc 3e2210e1184b45b64c8a434c0a7e7b23cc04ea7eb7a6c3c32520d03d4afcb8af \
+  --position 1 --json
+```
+
+Expected: watcher `16` tests, keeper `7` tests, liquidator `10` tests. Position
+`1` reports `Idle`, infinite health, zero debt, `0.003897999998392` ETH
+collateral, and a fresh oracle. The liquidator dry run exits with
+`health ∞ is not below 1.00x`; it never sends without `--execute`.
 
 ## 1. NEAR MPC derivation
 
@@ -157,13 +220,13 @@ curl -sS https://rpc.testnet.near.org \
       "request_type":"call_function","finality":"final",
       "account_id":"v1.signer-prod.testnet",
       "method_name":"derived_public_key",
-      "args_base64":"eyJwYXRoIjoibmF0aXZlLWNyZWRpdDp2MToxMTE1NTExMTpwb3NpdGlvbjoxIiwicHJlZGVjZXNzb3IiOiJuYXRpdmUtY3JlZGl0LnRlc3RuZXQiLCJkb21haW5faWQiOjB9"
+      "args_base64":"eyJwYXRoIjoibmF0aXZlLWNyZWRpdDp2MToxMTE1NTExMTpwb3NpdGlvbjoxIiwicHJlZGVjZXNzb3IiOiJ2Mi5uYXRpdmUtY3JlZGl0LnRlc3RuZXQiLCJkb21haW5faWQiOjB9"
     }
   }'
 ```
 
-Expected: a base58 secp256k1 public key. The corresponding Ethereum address is
-`0xec29df4cf529cf8be4fbc8380cf732cff82389bc`.
+Expected: a base58 secp256k1 public key. The corresponding Ethereum address for
+v2 position `1` is `0x81163cfa3c95b3691fdb4fb0766ecafcfa267999`.
 
 ## 2. Light client liveness and hash match
 
@@ -262,6 +325,8 @@ cd /tmp/opencode
 node prov2.mjs
 ```
 
-Expected: thirdweb and onfinality return a proof; publicnode/tenderly/zan return
-`distance to target block exceeds maximum proof window`; 1rpc reports historical
-state unavailable. Re-test before relying on a provider.
+Expected on 2026-11-07: OnFinality returns a valid pinned finalized proof;
+thirdweb returns HTTP 403; publicnode, tenderly, and zan return
+`distance to target block exceeds maximum proof window`; 1rpc, blockpi, and
+drpc fail with historical-state or HTTP errors; ethpandaops rate-limits. Re-test
+before relying on a provider.

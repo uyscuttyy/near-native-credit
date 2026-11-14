@@ -1,0 +1,14 @@
+{
+  "name": "@native-credit/keeper",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Health-factor monitor and liquidation candidate finder",
+  "scripts": {
+    "keeper": "node src/keeper.mjs",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

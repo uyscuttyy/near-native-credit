@@ -60,7 +60,7 @@ function usage() {
     "Usage: npm run update -- --eth-usd <price> [options]",
     "",
     "Options:",
-    "  --contract <id>       Contract account (default: native-credit.testnet)",
+    "  --contract <id>       Contract account (default: v2.native-credit.testnet)",
     "  --eth-usd <price>     ETH/USD price in dollars (required)",
     "  --usdc-usd <price>    USDC/USD price (default: 1.00)",
     "  --timestamp <secs>    Unix timestamp (default: now)",
@@ -101,7 +101,7 @@ async function main() {
   }
   if (!values["eth-usd"]) throw new Error(usage());
 
-  const contract = values.contract ?? "native-credit.testnet";
+  const contract = values.contract ?? "v2.native-credit.testnet";
   const rpcUrl = nearRpcUrl(values["near-rpc"]);
   const config = await nearView({
     contractId: contract,
