@@ -116,6 +116,35 @@ export function evaluatePosition({
     }
   }
 
+  const ticket = position.liquidation_ticket;
+  if (ticket) {
+    if (ticket.status === "Signed") {
+      push(
+        "warning",
+        "signed_liquidation_payout",
+        `liquidation payout of ${ticket.collateral_wei} wei to ${ticket.sepolia_address} is signed and awaiting broadcast/confirmation`,
+      );
+    } else if (ticket.status === "RefundPending") {
+      push(
+        "critical",
+        "liquidation_refund_pending",
+        `liquidation refund of ${ticket.collateral_wei} wei to ${ticket.liquidator} is stuck in RefundPending`,
+      );
+    } else if (ticket.status === "Refunding") {
+      push(
+        "warning",
+        "liquidation_refunding",
+        `liquidation refund of ${ticket.collateral_wei} wei is in flight; wait for the callback`,
+      );
+    } else if (ticket.status === "Refunded") {
+      push(
+        "info",
+        "liquidation_refunded",
+        `liquidation refund of ${ticket.collateral_wei} wei completed`,
+      );
+    }
+  }
+
   if (
     position.status === "Idle" &&
     BigInt(position.debt_usdc ?? "0") > 0n &&

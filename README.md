@@ -192,7 +192,7 @@ Test counts at audit time:
 | Contract unit | 36 passed |
 | Contract local E2E | 2 passed |
 | Relayer | 24 passed |
-| Watcher | 16 passed |
+| Watcher | 19 passed |
 | Keeper | 7 passed |
 | Liquidator | 10 passed |
 | Oracle | 4 passed |

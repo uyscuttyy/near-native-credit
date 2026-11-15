@@ -14,8 +14,8 @@ Result: all recorded local tests pass. This report covers local checks; live v1/
 | Keeper | 8 | Pass |
 | Liquidator | 12 | Pass |
 | Oracle | 4 | Pass |
-| Watcher | 16 | Pass |
-| **Total** | **115** | **Pass** |
+| Watcher | 19 | Pass |
+| **Total** | **118** | **Pass** |
 
 Static checks:
 
@@ -114,12 +114,12 @@ Key expected values from the underwater test:
 - Missing-key gaps and signature counting.
 - Base58 seed handling.
 - Raw transaction integrity and Sepolia receipt alerts.
+- Signed liquidation payout, refund-in-flight, stuck-refund, and refunded-state alerts.
 
 ## Scope limits
 
 - Contract E2E tests use synthetic Sepolia proofs; they do not broadcast transactions.
-- No live Sepolia RPC quorum was re-measured after the relayer changes.
-
+- A live two-provider Sepolia proof quorum was re-measured at block `12133303` after deployment.
 
 - No fuzzing, property testing, differential testing, or formal verification was performed.
 - The custom RLP/MPT/transaction verifier remains consensus-critical and under-assured.

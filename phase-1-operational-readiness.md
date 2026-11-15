@@ -8,9 +8,8 @@ Deployment status: deployed to `v2.native-credit.testnet` on 2026-11-14. No main
 
 **Testnet reconciliation complete; not mainnet-ready.** Phase 1 code, local tests, the v2 upgrade, the pending withdrawal confirmation, the guardian change, and the legacy-ticket migration are complete. The following gates remain:
 
-1. Add monitoring/alerts for refunds, `NeedsReview`, failed payouts, and stale prices.
-2. Document and rehearse rollback with the saved pre-upgrade wasm and state export.
-3. Review remaining Medium/Low findings for Phase 2.
+1. Configure operational delivery for the existing watcher alerts (webhook/ops channel).
+2. Review remaining Medium/Low findings for Phase 2.
 
 The live v2 ticket is `Settled`, the v1 position is recovered to `Idle`, and v2's guardian is `v2.native-credit.testnet`.
 
@@ -204,4 +203,5 @@ Executed on 2026-11-14 in tx `45XzfjBwYcaAWHRrqoEJ8s5yGYmrKt32SDPQPfmbM3Yz`; ret
 - [x] Live v1 `NeedsReview` investigated and funds recovered.
 - [x] Cleanup wasm deployed; saved rollback wasm/state are available.
 - [x] Rollback dry-run rehearsed and recorded; no live rollback was performed.
-- [ ] Monitoring/alerts configured for refunds, `NeedsReview`, failed payouts, and stale prices.
+- [x] Watcher alerts cover refunds, signed payouts, `NeedsReview`, failed receipts, and stale prices.
+- [ ] Operational alert delivery (webhook/ops channel) is configured.

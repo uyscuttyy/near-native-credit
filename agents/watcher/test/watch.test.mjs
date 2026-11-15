@@ -169,6 +169,86 @@ test("a failed Sepolia receipt is a critical withdrawal alert", () => {
   );
 });
 
+test("signed liquidation payout is surfaced", () => {
+  const alerts = evaluateSnapshot({
+    position: position({
+      liquidation_ticket: {
+        liquidator: "liquidator.testnet",
+        collateral_wei: "10000000000000000",
+        repay_usdc: "10000000",
+        sepolia_address: "0xabc",
+        status: "Signed",
+      },
+    }),
+    health: "120000",
+    price,
+    config,
+    nowSeconds: now,
+  });
+  assert.ok(
+    alerts.some(
+      (alert) =>
+        alert.severity === "warning" &&
+        alert.code === "signed_liquidation_payout",
+    ),
+  );
+});
+
+test("stuck liquidation refund is a critical alert", () => {
+  const alerts = evaluateSnapshot({
+    position: position({
+      liquidation_ticket: {
+        liquidator: "liquidator.testnet",
+        collateral_wei: "10000000000000000",
+        repay_usdc: "10000000",
+        sepolia_address: "0xabc",
+        status: "RefundPending",
+      },
+    }),
+    health: "120000",
+    price,
+    config,
+    nowSeconds: now,
+  });
+  assert.ok(
+    alerts.some(
+      (alert) =>
+        alert.severity === "critical" &&
+        alert.code === "liquidation_refund_pending",
+    ),
+  );
+});
+
+test("in-flight and completed liquidation refunds are surfaced", () => {
+  const ticket = {
+    liquidator: "liquidator.testnet",
+    collateral_wei: "10000000000000000",
+    repay_usdc: "10000000",
+    sepolia_address: "0xabc",
+  };
+  const refunding = evaluateSnapshot({
+    position: position({
+      liquidation_ticket: { ...ticket, status: "Refunding" },
+    }),
+    health: "120000",
+    price,
+    config,
+    nowSeconds: now,
+  });
+  assert.ok(refunding.some((alert) => alert.code === "liquidation_refunding"));
+
+  const refunded = evaluateSnapshot({
+    position: position({
+      liquidation_ticket: { ...ticket, status: "Refunded" },
+    }),
+    health: "120000",
+    price,
+    config,
+    nowSeconds: now,
+  });
+  assert.ok(refunded.some((alert) => alert.code === "liquidation_refunded"));
+});
+
 test("renderReport summarizes alerts", () => {
   const text = renderReport({
     positionId: 1,

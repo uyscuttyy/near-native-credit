@@ -19,8 +19,8 @@ Last updated: 2026-11-07
 - `agents/oracle/` - 2-of-3 Ed25519 price signer and `update_price` submitter.
 - `agents/shared/` - shared NEAR view helpers and pure risk/health helpers.
 - `agents/watcher/` - read-only alerts for stale oracle, near/liquidatable
-  health, `NeedsReview`, pending operations, Sepolia receipt status, and
-  raw-tx/hash mismatches.
+  health, `NeedsReview`, pending operations, Sepolia receipt status,
+  raw-tx/hash mismatches, signed payouts, and liquidation refunds.
 - `agents/keeper/` - read-only range scanner that ranks liquidation candidates.
 - `agents/liquidator/` - dry-run liquidation planner; sends only with
   `--execute` and can register a Sepolia payout address first.
@@ -217,7 +217,7 @@ npm run build
      credited, `0.085904 ETH` withdrawn to `0x0d5d...b8fa6`, final state
      `Idle` with `collateral_wei=20999999664000` and nonce `4`.
 9. Agent checks:
-   - `agents/watcher`: **16 tests pass**;
+   - `agents/watcher`: **19 tests pass**;
    - `agents/keeper`: **8 tests pass**;
    - `agents/liquidator`: **12 tests pass**.
 10. Current live v2 state: position `1` is `Idle`, debt `0`,
