@@ -115,10 +115,9 @@ Sepolia's EIP-8037 state gas makes a transfer to a fresh EOA cost about `207391`
 
 - Supplier deposits, LP shares, lender withdrawals, and yield distribution.
 - Utilization-based interest, reserves, and protocol fees.
-- Bad-debt recognition, socialization, insurance, or stability pool.
+- Socialization, insurance, or stability pool for bad debt (bad-debt recognition landed in Phase 1).
 - Close factor, liquidation auction, or other production liquidation design.
-- Independent oracle fallback and key rotation.
-- Multi-provider proof quorum in live operation.
+- Independent oracle fallback and key rotation (two-provider live proof quorum landed in Phase 1).
 - Storage proofs, multi-asset support, and multi-chain support.
 - Events, indexing, and a self-serve lifecycle UI.
 - Timelocks, multisig upgrade controls, and production incident response.
@@ -198,7 +197,9 @@ Test counts at audit time:
 | Oracle | 4 passed |
 | Web | No test suite |
 
-Passing tests are not a security audit. The High findings remain open.
+Passing tests are not a security audit. Current finding status, including the
+fixed High/Medium/Low items and the remaining open work, is tracked in
+[`AUDIT/STATUS.md`](./AUDIT/STATUS.md).
 
 ## Run the demo dashboard
 

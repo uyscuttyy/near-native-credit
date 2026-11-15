@@ -1554,6 +1554,23 @@ mod tests {
     }
 
     #[test]
+    fn min_withdrawal_keeps_a_20x_margin_over_max_gas() {
+        let cfg = config("owner.testnet".parse().unwrap());
+        let max_gas_wei = (cfg.gas_limit as u128) * cfg.max_fee_per_gas.0;
+        assert_eq!(max_gas_wei, 500_000_000_000_000);
+        assert!(cfg.min_withdrawal_wei.0 >= 20 * max_gas_wei);
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid gas config")]
+    fn gas_limit_cannot_exceed_min_withdrawal_headroom() {
+        let owner: AccountId = "owner.testnet".parse().unwrap();
+        testing_env!(context("owner.testnet", 0).build());
+        let mut contract = Contract::new(config(owner));
+        contract.set_gas_limit(5_000_000);
+    }
+
+    #[test]
     fn owner_can_transfer_an_idle_position() {
         let owner: AccountId = "alice.testnet".parse().unwrap();
         testing_env!(context("alice.testnet", 0).build());
@@ -2212,6 +2229,89 @@ mod tests {
                 .liquidation_ticket
                 .expect("ticket")
                 .status,
+            TicketStatus::Settled
+        );
+    }
+
+    #[test]
+    fn liquidation_signature_does_not_overwrite_terminal_ticket() {
+        use k256::ecdsa::SigningKey;
+
+        let owner: AccountId = "alice.testnet".parse().unwrap();
+        let ctx = context("alice.testnet", 0);
+        testing_env!(ctx.build());
+        let mut contract = Contract::new(config(owner.clone()));
+        let now = env::block_timestamp() / 1_000_000_000;
+        let signing_key = SigningKey::from_slice(&[11u8; 32]).unwrap();
+        let point = signing_key.verifying_key().to_encoded_point(false);
+        let hash = crypto::keccak256(&point.as_bytes()[1..]);
+        let mut signer_address = [0u8; 20];
+        signer_address.copy_from_slice(&hash[12..]);
+        contract.price = Some(Price {
+            eth_usd_1e8: U128(300_000_000_000),
+            usdc_usd_1e8: U128(100_000_000),
+            timestamp: now,
+            sequence: 1,
+        });
+        let signing_hash = crypto::keccak256(b"liquidation payout test");
+        contract.positions.insert(
+            1,
+            Position {
+                owner: owner.clone(),
+                status: PositionStatus::WithdrawalPending,
+                deposit_address: Some(crypto::address_hex(&signer_address)),
+                collateral_wei: U128(10u128.pow(18)),
+                last_verified_block: 100,
+                last_verified_nonce: 0,
+                debt_usdc: U128(0),
+                last_accrual_secs: now,
+                pending_deposit: None,
+                pending_withdrawal: Some(PendingWithdrawal {
+                    amount_wei: U128(1),
+                    max_gas_wei: U128(contract.config.max_gas_wei()),
+                    nonce: 0,
+                    to: "0x0000000000000000000000000000000000000003".to_string(),
+                    signing_hash,
+                    raw_tx: None,
+                    tx_hash: None,
+                    kind: WithdrawalKind::Liquidation,
+                    requested_block: 100,
+                }),
+                pending_borrow: None,
+                liquidation_ticket: Some(LiquidationTicket {
+                    liquidator: "liquidator.testnet".parse().unwrap(),
+                    collateral_wei: U128(1),
+                    repay_usdc: U128(1),
+                    sepolia_address: "0x0000000000000000000000000000000000000003".to_string(),
+                    status: TicketStatus::Settled,
+                }),
+            },
+        );
+        let (signature, recovery_id) = signing_key.sign_prehash_recoverable(&signing_hash).unwrap();
+        let bytes = signature.to_bytes();
+        let recovery = recovery_id.to_byte();
+        let prefix = if recovery % 2 == 0 { 2 } else { 3 };
+        let response = json!({
+            "big_r": { "affine_point": format!("0x{:02x}{}", prefix, hex::encode(&bytes[..32])) },
+            "s": { "scalar": format!("0x{}", hex::encode(&bytes[32..])) },
+            "recovery_id": recovery,
+        });
+        testing_env!(
+            ctx.build(),
+            near_sdk::test_vm_config(),
+            near_sdk::RuntimeFeesConfig::test(),
+            Default::default(),
+            vec![PromiseResult::Successful(
+                serde_json::to_vec(&response).unwrap()
+            )],
+        );
+        contract.on_sign(1, hex::encode(signing_hash));
+
+        let position = contract.get_position(1);
+        assert_eq!(position.status, PositionStatus::Idle);
+        assert!(position.pending_withdrawal.is_none());
+        assert_eq!(
+            position.liquidation_ticket.expect("ticket").status,
             TicketStatus::Settled
         );
     }

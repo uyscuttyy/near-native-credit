@@ -443,7 +443,9 @@ pub fn assemble_signed_tx(params: &TxParams, y_parity: u8, r: &[u8; 32], s: &[u8
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
     use serde_json::Value;
+    use std::sync::OnceLock;
 
     const VECTORS: &str = include_str!("../testdata/sepolia_12058306.json");
     const TX_VECTORS: &str = include_str!("../testdata/sepolia_tx_12058498.json");
@@ -451,6 +453,15 @@ mod tests {
     fn hex_bytes(value: &str) -> Vec<u8> {
         let raw = value.strip_prefix("0x").unwrap_or(value);
         hex::decode(raw).expect("valid hex")
+    }
+
+    fn vectors() -> &'static Value {
+        static DATA: OnceLock<Value> = OnceLock::new();
+        DATA.get_or_init(|| serde_json::from_str(VECTORS).unwrap())
+    }
+
+    fn header_rlp() -> Vec<u8> {
+        hex_bytes(vectors()["headerRlp"].as_str().unwrap())
     }
 
     #[test]
@@ -635,5 +646,80 @@ mod tests {
         let raw = assemble_signed_tx(&params, normalized_recovery_id, &r, &normalized_s);
         assert_eq!(bytes_hex(&raw), data["raw"].as_str().unwrap());
         assert_eq!(bytes_hex(&keccak256(&raw)), data["hash"].as_str().unwrap());
+    }
+
+    #[test]
+    fn measures_captured_proof_and_tx_payload_sizes() {
+        let data = vectors();
+        let tx: Value = serde_json::from_str(TX_VECTORS).unwrap();
+        let header = header_rlp();
+        let mut total_proof_bytes = 0usize;
+        let mut max_node_bytes = 0usize;
+        for (_, account) in data["accounts"].as_object().unwrap() {
+            for node in account["accountProof"].as_array().unwrap() {
+                let size = hex_bytes(node.as_str().unwrap()).len();
+                total_proof_bytes += size;
+                max_node_bytes = max_node_bytes.max(size);
+            }
+        }
+        let raw_tx = hex_bytes(tx["raw"].as_str().unwrap()).len();
+        println!(
+            "header={}B total_account_proof={total_proof_bytes}B max_node={max_node_bytes}B raw_tx={raw_tx}B",
+            header.len()
+        );
+        assert!(header.len() <= 2048);
+        assert!(total_proof_bytes <= 16_384);
+        assert!(max_node_bytes <= 1024);
+        assert!(raw_tx <= 512);
+    }
+
+    proptest! {
+        #![proptest_config(proptest::test_runner::Config::with_cases(64))]
+
+        #[test]
+        fn header_parse_never_panics_on_arbitrary_bytes(
+            data in proptest::collection::vec(any::<u8>(), 0..512),
+        ) {
+            let _ = parse_header_fields(&data);
+        }
+
+        #[test]
+        fn truncated_sepolia_header_is_rejected(length in 0usize..header_rlp().len()) {
+            let header = header_rlp();
+            prop_assert!(parse_header_fields(&header[..length]).is_err());
+        }
+
+        #[test]
+        fn account_decode_never_panics_on_arbitrary_bytes(
+            data in proptest::collection::vec(any::<u8>(), 0..256),
+        ) {
+            let _ = decode_account(&data);
+        }
+
+        #[test]
+        fn malformed_trie_proof_never_panics(
+            proof in proptest::collection::vec(
+                proptest::collection::vec(any::<u8>(), 0..192),
+                0..10,
+            ),
+        ) {
+            let fields = parse_header_fields(&header_rlp()).unwrap();
+            let address =
+                parse_address_hex("0x0000000000000000000000000000000000000001").unwrap();
+            let _ = verify_account_proof(fields.state_root, address, &proof);
+        }
+
+        #[test]
+        fn minimal_rlp_u128_encoding_round_trips(value in any::<u128>()) {
+            let mut stream = RlpStream::new_list(1);
+            append_u128(&mut stream, value);
+            let encoded = stream.out();
+            let rlp = Rlp::new(&encoded);
+            let payload = rlp.at(0).unwrap().data().unwrap();
+            prop_assert!(payload.len() <= 16);
+            let mut buf = [0u8; 16];
+            buf[16 - payload.len()..].copy_from_slice(payload);
+            prop_assert_eq!(u128::from_be_bytes(buf), value);
+        }
     }
 }

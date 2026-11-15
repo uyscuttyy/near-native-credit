@@ -2,20 +2,20 @@
 
 Date: 2026-11-14
 Branch: `phase-1/security-hardening`
-Result: all recorded local tests pass. This report covers local checks; live v1/v2 reconciliation and cleanup deployment are recorded in `phase-1-operational-readiness.md`.
+Result: all recorded local tests pass. This report covers local checks; live v1/v2 reconciliation and cleanup deployment are recorded in `phase-1-operational-readiness.md`. Audit finding statuses are tracked in `AUDIT/STATUS.md`.
 
 ## Summary
 
 | Suite | Tests | Result |
 |---|---:|---|
-| Contract unit (`--lib`) | 43 | Pass |
+| Contract unit (`--lib`) | 52 | Pass |
 | Contract local E2E | 6 | Pass |
 | Relayer | 26 | Pass |
 | Keeper | 8 | Pass |
 | Liquidator | 12 | Pass |
 | Oracle | 4 | Pass |
 | Watcher | 19 | Pass |
-| **Total** | **118** | **Pass** |
+| **Total** | **127** | **Pass** |
 
 Static checks:
 
@@ -50,7 +50,7 @@ cd agents/watcher && npm test
 
 ### Unit tests
 
-The 43 unit tests cover:
+The 52 unit tests cover:
 
 - initialization, storage deposit, and config validation;
 - chain-id typo rejection (`1115711` vs `11155111`);
@@ -62,6 +62,8 @@ The 43 unit tests cover:
 - liquidation math, penalty capping, max repay, and token conversion;
 - proof/tamper vectors, EIP-1559 hashing, EOA detection, and signature recovery;
 - risk-off behavior and deployed gas-limit controls.
+- Withdrawal-minimum headroom: the 0.01 ETH minimum is at least 20x `max_gas_wei`, and `set_gas_limit` cannot consume that headroom.
+- A liquidation `on_sign` path that cannot overwrite a terminal ticket with a valid MPC-style signature.
 
 ### Local E2E tests
 
@@ -115,6 +117,30 @@ Key expected values from the underwater test:
 - Base58 seed handling.
 - Raw transaction integrity and Sepolia receipt alerts.
 - Signed liquidation payout, refund-in-flight, stuck-refund, and refunded-state alerts.
+
+### Mutation tests
+
+`scripts/mutation_tests.py` mutates 9 security guards and requires the matching
+test to fail. All 9 mutants are killed: chain-id validation, duplicate oracle
+keys, future price, stale health, storage deposit, terminal ticket,
+`set_gas_limit` owner guard, `set_gas_limit` headroom, and signed-payout
+reconciliation. The harness reuses a git worktree under `/tmp` and reverts each
+mutation after the run.
+
+### Property tests
+
+`proptest` cases (64 runs each) cover `parse_header_fields` on arbitrary bytes,
+truncated real Sepolia headers, `decode_account` on arbitrary bytes, malformed
+trie-node arrays, and minimal RLP u128 round-trips. The custom verifier is
+fuzzed for panic-freedom and deterministic rejection, but is still not
+differentially tested against a reference implementation.
+
+### Payload size measurement
+
+`measures_captured_proof_and_tx_payload_sizes` measures the captured Sepolia
+vectors: header 688 B, total account proof 10,735 B, largest proof node 532 B,
+and raw EIP-1559 transaction 121 B. On-chain gas for `verify_trie_proof` still
+requires a live call and remains open.
 
 ## Scope limits
 

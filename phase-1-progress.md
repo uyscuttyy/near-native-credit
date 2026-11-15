@@ -41,17 +41,20 @@ Fix the four High security findings from the audit, harden the proof/oracle/liqu
 - Recorded a rollback dry-run with saved wasm/state artifacts.
 - Added watcher alerts for signed liquidation payouts and refund states.
 - Added GitHub Actions CI for contract checks/tests, every agent test suite, and the web build; the first full run is green.
+- Added `proptest` property tests for header parsing, account decoding, trie proofs, and RLP encoding; measured captured proof payload sizes.
+- Added a mutation-test harness (`scripts/mutation_tests.py`); all 9 security-guard mutants are killed.
+- Added a liquidation `on_sign` terminal-ticket test and withdrawal-headroom tests; recorded each audit finding's status in `AUDIT/STATUS.md`.
 
 ## Verification
 
-- Contract unit tests: `43 passed`.
+- Contract unit tests: `52 passed`.
 - Contract local E2E tests: `6 passed`.
 - Relayer tests: `26 passed`.
 - Keeper tests: `8 passed`.
 - Liquidator tests: `12 passed`.
 - Oracle tests: `4 passed`.
 - Watcher tests: `19 passed`.
-- Total recorded tests: `118 passed`.
+- Total recorded tests: `127 passed`.
 - `cargo fmt --all -- --check`: clean.
 - `cargo clippy -p native-credit --all-targets -- -D warnings`: clean.
 - `cargo build -p native-credit --target wasm32-unknown-unknown --release`: passed.
@@ -62,10 +65,11 @@ See `phase-1-test-report.md` for commands and scope limits.
 
 - Phase 1 and the cleanup wasm are deployed to the v2 testnet contract; no mainnet or third-party production deployment was made.
 - Public-provider availability remains an operational dependency.
-- No fuzzing, formal verification, fallback oracle, timelock, or full event schema was added.
+- No differential verifier testing, formal verification, fallback oracle, timelock, or full event schema was added.
 - Operational alert delivery is not configured; the watcher alerts exist but are not wired to an ops channel.
 
 ## Next
 
 1. Wire watcher alerts to an operational webhook/ops channel.
-2. Decide whether to address remaining Medium/Low findings in Phase 2.
+2. Measure on-chain gas for `verify_trie_proof` with a live call.
+3. Phase 2: fallback oracle/circuit breaker, timelock/multisig, NEP-297 events, indexer, differential verifier tests.

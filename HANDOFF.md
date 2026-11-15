@@ -149,7 +149,7 @@ npm run build
 
 ## Verified now
 
-1. `cargo test -p native-credit`: **51 tests pass** (45 unit + 6 local E2E).
+1. `cargo test -p native-credit`: **58 tests pass** (52 unit + 6 local E2E).
 2. `cargo clippy -p native-credit --all-targets -- -D warnings`: clean.
 3. `cargo build -p native-credit --target wasm32-unknown-unknown --release`:
    succeeds. `v2.native-credit.testnet` now runs the Phase 1 `640731`-byte wasm,

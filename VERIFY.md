@@ -16,7 +16,7 @@ cargo build -p native-credit --target wasm32-unknown-unknown --release
 cargo test -p native-credit --test local_e2e
 ```
 
-Expected: 49 tests pass (43 unit + 6 local E2E), clippy is clean, and
+Expected: 58 tests pass (52 unit + 6 local E2E), clippy is clean, and
 `target/wasm32-unknown-unknown/release/native_credit.wasm` is produced.
 The deployed cleanup wasm is `638233` bytes, sha256
 `b03c68feda95671773ec1992579ccb3843dd18743d25bfcc76279052933e9a91`,
