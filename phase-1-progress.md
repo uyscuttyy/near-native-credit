@@ -22,8 +22,7 @@ Fix the four High security findings from the audit, harden the proof/oracle/liqu
   - failed liquidation payouts refund the liquidator.
 - Added liquidation refund states and a permissionless retry path:
   - `RefundPending`, `Refunding`, `Refunded`;
-  - `refund_liquidation(position_id)` can retry a failed refund.
-- Prevented user signatures from overwriting terminal or liquidation tickets.
+  - `refund_liquidation(position_id)` can retry a failed refund.- Prevented user signatures from overwriting terminal or liquidation tickets.
 - Preserved pending state when light-client hash verification mismatches; the position moves to `NeedsReview`.
 - Restricted `clear_stuck_proof` to owner/guardian, added timeout requirements for unsigned operations, and rejected clearing signed payouts.
 - Added callback correlation so stale `on_sign` and `on_block_hash` callbacks are ignored.
@@ -38,6 +37,10 @@ Fix the four High security findings from the audit, harden the proof/oracle/liqu
 - Recovered the v1 testnet balance: cleared the stale pending withdrawal, credited the current finalized proof, refreshed the v1 oracle price, withdrew `0.085904 ETH` to `0x0d5d...b8fa6`, and confirmed the payout.
 - Reconciled and upgraded v2: confirmed the pending withdrawal, moved the guardian to `v2.native-credit.testnet`, exported state, deployed the Phase 1 wasm, migrated the legacy ticket to `Settled`, and re-ran the live two-provider proof path.
 - Updated relayer/VERIFY/HANDOFF documentation to remove the single-provider workaround.
+- Deployed the cleanup wasm that removes the executed legacy migration path.
+- Recorded a rollback dry-run with saved wasm/state artifacts.
+- Added watcher alerts for signed liquidation payouts and refund states.
+- Added GitHub Actions CI for contract checks/tests, every agent test suite, and the web build.
 
 ## Verification
 
@@ -47,8 +50,8 @@ Fix the four High security findings from the audit, harden the proof/oracle/liqu
 - Keeper tests: `8 passed`.
 - Liquidator tests: `12 passed`.
 - Oracle tests: `4 passed`.
-- Watcher tests: `16 passed`.
-- Total recorded tests: `115 passed`.
+- Watcher tests: `19 passed`.
+- Total recorded tests: `118 passed`.
 - `cargo fmt --all -- --check`: clean.
 - `cargo clippy -p native-credit --all-targets -- -D warnings`: clean.
 - `cargo build -p native-credit --target wasm32-unknown-unknown --release`: passed.
@@ -60,11 +63,9 @@ See `phase-1-test-report.md` for commands and scope limits.
 - Phase 1 and the cleanup wasm are deployed to the v2 testnet contract; no mainnet or third-party production deployment was made.
 - Public-provider availability remains an operational dependency.
 - No fuzzing, formal verification, fallback oracle, timelock, or full event schema was added.
-- Monitoring/alerts and a documented rollback rehearsal remain to be completed.
+- Operational alert delivery is not configured; the watcher alerts exist but are not wired to an ops channel.
 
 ## Next
 
-1. Commit and push the deployed cleanup wasm.
-2. Add monitoring for refunds, `NeedsReview`, failed payouts, and stale prices.
-3. Document and rehearse rollback using the saved pre-upgrade wasm/state.
-4. Decide whether to address remaining Medium/Low findings in Phase 2.
+1. Wire watcher alerts to an operational webhook/ops channel.
+2. Decide whether to address remaining Medium/Low findings in Phase 2.
