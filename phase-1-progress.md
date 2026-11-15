@@ -71,5 +71,5 @@ See `phase-1-test-report.md` for commands and scope limits.
 ## Next
 
 1. Wire watcher alerts to an operational webhook/ops channel.
-2. Measure on-chain gas for `verify_trie_proof` with a live call.
+2. On-chain gas for `verify_trie_proof` was measured from the live confirmations: ~2.4 Tgas per contract call, ~15.3 Tgas total per confirmation.
 3. Phase 2: fallback oracle/circuit breaker, timelock/multisig, NEP-297 events, indexer, differential verifier tests.

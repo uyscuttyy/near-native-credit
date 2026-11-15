@@ -8,7 +8,7 @@ Baseline: `AUDIT/AUDIT.md` (audit-baseline `f8241dc`), corrected by
 
 | Finding | Status | Evidence |
 | --- | --- | --- |
-| On-chain trie proof gas/size unmeasured | Partially addressed; on-chain gas still pending | Payload sizes are now measured and bounded by `crypto::tests::measures_captured_proof_and_tx_payload_sizes` from the captured vectors: header 688 B, total account proof 10,735 B, largest node 532 B, raw tx 121 B. Actual on-chain gas for `verify_trie_proof` still requires a live NEAR call and remains an open operational task. |
+| On-chain trie proof gas/size unmeasured | Measured on-chain from live transactions | Payload sizes are measured and bounded by `crypto::tests::measures_captured_proof_and_tx_payload_sizes`: header 688 B, total account proof 10,735 B, largest node 532 B, raw tx 121 B. On-chain gas was measured from the two live `confirm_withdrawal` transactions: the contract call that parses the header, verifies the account proof (trie verification), and settles state burned ~2.37 Tgas (v2, tx `CWHvU2SN8RntCU4srqdY4GBjCxLCf8W7fpRro7xjR4fc`) and ~2.47 Tgas (v1, tx `CKU2wZWaDWhaHdwxNxXFm7sUhfPbEUzwCRyoKRXvtHQC`); the light-client consensus receipt added ~8.5 Tgas; the total user cost per confirmation is ~15.3 Tgas (~0.0015 NEAR), far below NEAR's per-receipt gas cap. |
 | Only one reliable keyless Sepolia RPC provider | Mitigated | `agents/relayer` enforces a minimum quorum of 2, validates `eth_chainId` per provider, and fails closed below quorum. Live two-provider proofs succeeded with thirdweb + onfinality at finalized Sepolia block 12133303 (quorum 2/2). Provider health remains an operational dependency. |
 
 ## Medium findings

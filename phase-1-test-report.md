@@ -139,8 +139,11 @@ differentially tested against a reference implementation.
 
 `measures_captured_proof_and_tx_payload_sizes` measures the captured Sepolia
 vectors: header 688 B, total account proof 10,735 B, largest proof node 532 B,
-and raw EIP-1559 transaction 121 B. On-chain gas for `verify_trie_proof` still
-requires a live call and remains open.
+and raw EIP-1559 transaction 121 B. On-chain gas was measured from the two live
+`confirm_withdrawal` transactions: the contract call (header parse + account
+proof verification + settlement) burned ~2.37 Tgas on v2 and ~2.47 Tgas on v1,
+the light-client receipt added ~8.5 Tgas, and the total confirmation cost is
+~15.3 Tgas (~0.0015 NEAR).
 
 ## Scope limits
 
