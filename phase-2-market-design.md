@@ -142,9 +142,10 @@ history without chain archaeology.
 ## 10. Build order
 
 1. Asset registry: `register_asset`, validation, uniqueness, per-asset pool
-   state, timelocked parameter updates (owner + tests). ← current step
+   state, timelocked parameter updates (owner + tests). Done
+   (`5991342`, cross-asset model).
 2. Supplier side: deposit/shares/withdraw/queue + index accrual, with property
-   and mutation tests (reuse the harness).
+   and mutation tests (reuse the harness). ← current step
 3. Borrower side: multi-asset positions (basket health, borrow/repay per
    asset), porting the proven proof/signature machine.
 4. Liquidation + loss waterfall with events.
