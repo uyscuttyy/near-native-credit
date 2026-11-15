@@ -40,7 +40,7 @@ Fix the four High security findings from the audit, harden the proof/oracle/liqu
 - Deployed the cleanup wasm that removes the executed legacy migration path.
 - Recorded a rollback dry-run with saved wasm/state artifacts.
 - Added watcher alerts for signed liquidation payouts and refund states.
-- Added GitHub Actions CI for contract checks/tests, every agent test suite, and the web build.
+- Added GitHub Actions CI for contract checks/tests, every agent test suite, and the web build; the first full run is green.
 
 ## Verification
 
