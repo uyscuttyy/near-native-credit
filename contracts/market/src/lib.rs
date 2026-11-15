@@ -10,8 +10,8 @@ pub const INITIAL_INTEREST_INDEX: u128 = 10u128.pow(18);
 #[derive(BorshStorageKey)]
 #[near(serializers = [borsh])]
 enum StorageKey {
-    Markets,
-    MarketKeys,
+    Assets,
+    AssetKeys,
     PendingParamChanges,
 }
 
@@ -47,12 +47,13 @@ pub struct InterestCurve {
 
 #[near(serializers = [borsh, json])]
 #[derive(Clone, Debug)]
-pub struct MarketParams {
-    pub chain_family: ChainFamily,
+pub struct AssetConfig {
+    pub asset: Asset,
+    pub family: ChainFamily,
     pub chain_id: u64,
     pub light_client: AccountId,
-    pub collateral_asset: Option<Asset>,
-    pub loan_asset: Asset,
+    pub supply_enabled: bool,
+    pub collateral_enabled: bool,
     pub collateral_factor_bps: u16,
     pub liquidation_threshold_bps: u16,
     pub liquidation_penalty_bps: u16,
@@ -62,13 +63,12 @@ pub struct MarketParams {
     pub min_borrow: U128,
     pub supply_cap: U128,
     pub borrow_cap: U128,
-    pub collateral_price_feed: AccountId,
-    pub loan_price_feed: AccountId,
+    pub price_feed: AccountId,
 }
 
 #[near(serializers = [borsh, json])]
 #[derive(Clone, Debug)]
-pub struct PoolState {
+pub struct AssetPoolState {
     pub total_supply: U128,
     pub total_borrow: U128,
     pub total_reserves: U128,
@@ -78,9 +78,9 @@ pub struct PoolState {
 
 #[near(serializers = [borsh, json])]
 #[derive(Clone, Debug)]
-pub struct MarketEntry {
-    pub params: MarketParams,
-    pub state: PoolState,
+pub struct AssetEntry {
+    pub config: AssetConfig,
+    pub pool: AssetPoolState,
 }
 
 #[near(serializers = [borsh, json])]
@@ -104,9 +104,9 @@ pub struct PendingParamChange {
 
 #[near(serializers = [borsh])]
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct MarketKey {
+struct AssetKey {
     chain_id: u64,
-    loan_asset: String,
+    account: String,
 }
 
 #[near(contract_state)]
@@ -114,9 +114,9 @@ struct MarketKey {
 pub struct Market {
     owner: AccountId,
     timelock_secs: u64,
-    next_market_id: u32,
-    markets: LookupMap<u32, MarketEntry>,
-    market_keys: LookupSet<MarketKey>,
+    next_asset_id: u32,
+    assets: LookupMap<u32, AssetEntry>,
+    asset_keys: LookupSet<AssetKey>,
     pending: LookupMap<u32, PendingParamChange>,
 }
 
@@ -133,40 +133,35 @@ fn validate_asset(asset: &Asset, message: &'static str) {
     }
 }
 
-fn validate_market_params(params: &MarketParams) {
-    require!(params.chain_family == ChainFamily::Evm, "unsupported chain");
-    require!(params.chain_id != 0, "invalid chain config");
-    require!(
-        params
-            .collateral_asset
-            .as_ref()
-            .map(|asset| asset.kind == AssetKind::NativeEth)
-            .unwrap_or(false),
-        "unsupported collateral asset"
-    );
-    if let Some(asset) = &params.collateral_asset {
-        validate_asset(asset, "unsupported collateral asset");
+fn validate_asset_config(config: &AssetConfig) {
+    require!(config.family == ChainFamily::Evm, "unsupported chain");
+    require!(config.chain_id != 0, "invalid chain config");
+    match config.asset.kind {
+        AssetKind::NativeEth => {
+            require!(!config.supply_enabled, "native eth is collateral only");
+        }
+        AssetKind::Nep141 => {}
     }
     require!(
-        params.loan_asset.kind == AssetKind::Nep141,
-        "invalid loan asset"
+        config.supply_enabled || config.collateral_enabled,
+        "asset must enable supply or collateral"
     );
-    validate_asset(&params.loan_asset, "invalid loan asset");
+    validate_asset(&config.asset, "invalid asset");
     require!(
-        params.collateral_factor_bps > 0
-            && params.collateral_factor_bps <= params.liquidation_threshold_bps
-            && params.liquidation_threshold_bps <= 10_000,
+        config.collateral_factor_bps > 0
+            && config.collateral_factor_bps <= config.liquidation_threshold_bps
+            && config.liquidation_threshold_bps <= 10_000,
         "invalid market economics"
     );
     require!(
-        params.liquidation_penalty_bps <= 5_000,
+        config.liquidation_penalty_bps <= 5_000,
         "invalid market economics"
     );
     require!(
-        params.reserve_factor_bps < 10_000,
+        config.reserve_factor_bps < 10_000,
         "invalid market economics"
     );
-    let curve = &params.interest_curve;
+    let curve = &config.interest_curve;
     require!(
         curve.base_bps <= 10_000
             && curve.slope_bps <= 10_000
@@ -174,31 +169,27 @@ fn validate_market_params(params: &MarketParams) {
             && curve.kink_utilization_bps <= 10_000,
         "invalid interest curve"
     );
-    require!(params.min_borrow.0 > 0, "invalid market economics");
+    require!(config.min_borrow.0 > 0, "invalid market economics");
     require!(
-        params.supply_cap.0 > 0 && params.borrow_cap.0 > 0,
+        config.supply_cap.0 > 0 && config.borrow_cap.0 > 0,
         "invalid caps"
     );
-    require!(params.supply_cap.0 >= params.min_deposit.0, "invalid caps");
-    require!(params.borrow_cap.0 >= params.min_borrow.0, "invalid caps");
-    require!(
-        params.collateral_price_feed != params.loan_price_feed,
-        "duplicate price feed"
-    );
+    require!(config.supply_cap.0 >= config.min_deposit.0, "invalid caps");
+    require!(config.borrow_cap.0 >= config.min_borrow.0, "invalid caps");
 }
 
 impl ParamUpdate {
-    fn apply_to(&self, params: &mut MarketParams) {
+    fn apply_to(&self, config: &mut AssetConfig) {
         match self {
-            ParamUpdate::CollateralFactorBps(value) => params.collateral_factor_bps = *value,
+            ParamUpdate::CollateralFactorBps(value) => config.collateral_factor_bps = *value,
             ParamUpdate::LiquidationThresholdBps(value) => {
-                params.liquidation_threshold_bps = *value
+                config.liquidation_threshold_bps = *value
             }
-            ParamUpdate::LiquidationPenaltyBps(value) => params.liquidation_penalty_bps = *value,
-            ParamUpdate::ReserveFactorBps(value) => params.reserve_factor_bps = *value,
-            ParamUpdate::SupplyCap(value) => params.supply_cap = *value,
-            ParamUpdate::BorrowCap(value) => params.borrow_cap = *value,
-            ParamUpdate::MinBorrow(value) => params.min_borrow = *value,
+            ParamUpdate::LiquidationPenaltyBps(value) => config.liquidation_penalty_bps = *value,
+            ParamUpdate::ReserveFactorBps(value) => config.reserve_factor_bps = *value,
+            ParamUpdate::SupplyCap(value) => config.supply_cap = *value,
+            ParamUpdate::BorrowCap(value) => config.borrow_cap = *value,
+            ParamUpdate::MinBorrow(value) => config.min_borrow = *value,
         }
     }
 }
@@ -215,9 +206,9 @@ impl Market {
         Self {
             owner,
             timelock_secs,
-            next_market_id: 1,
-            markets: LookupMap::new(StorageKey::Markets),
-            market_keys: LookupSet::new(StorageKey::MarketKeys),
+            next_asset_id: 1,
+            assets: LookupMap::new(StorageKey::Assets),
+            asset_keys: LookupSet::new(StorageKey::AssetKeys),
             pending: LookupMap::new(StorageKey::PendingParamChanges),
         }
     }
@@ -230,35 +221,34 @@ impl Market {
         self.timelock_secs
     }
 
-    pub fn get_market_count(&self) -> u32 {
-        self.next_market_id - 1
+    pub fn get_asset_count(&self) -> u32 {
+        self.next_asset_id - 1
     }
 
-    pub fn get_market(&self, market_id: u32) -> MarketEntry {
-        self.markets
-            .get(&market_id)
-            .expect("market not found")
-            .clone()
+    pub fn get_asset(&self, asset_id: u32) -> AssetEntry {
+        self.assets.get(&asset_id).expect("asset not found").clone()
     }
 
-    pub fn get_pending_param_change(&self, market_id: u32) -> Option<PendingParamChange> {
-        self.pending.get(&market_id).cloned()
+    pub fn get_pending_param_change(&self, asset_id: u32) -> Option<PendingParamChange> {
+        self.pending.get(&asset_id).cloned()
     }
 
-    pub fn register_market(&mut self, params: MarketParams) -> u32 {
+    pub fn register_asset(&mut self, config: AssetConfig) -> u32 {
         require!(env::predecessor_account_id() == self.owner, "owner only");
-        validate_market_params(&params);
-        let key = MarketKey {
-            chain_id: params.chain_id,
-            loan_asset: params.loan_asset.account.clone(),
+        validate_asset_config(&config);
+        let key = AssetKey {
+            chain_id: config.chain_id,
+            account: config.asset.account.clone(),
         };
-        require!(self.market_keys.insert(key), "market already exists");
-        let market_id = self.next_market_id;
-        self.markets.insert(
-            market_id,
-            MarketEntry {
-                params,
-                state: PoolState {
+        require!(self.asset_keys.insert(key), "asset already exists");
+        let asset_id = self.next_asset_id;
+        let chain_id = config.chain_id;
+        let account = config.asset.account.clone();
+        self.assets.insert(
+            asset_id,
+            AssetEntry {
+                config,
+                pool: AssetPoolState {
                     total_supply: U128(0),
                     total_borrow: U128(0),
                     total_reserves: U128(0),
@@ -267,34 +257,30 @@ impl Market {
                 },
             },
         );
-        self.next_market_id += 1;
+        self.next_asset_id += 1;
         env::log_str(
             &json!({
-                "event": "market_registered",
-                "market_id": market_id,
-                "chain_id": self.markets.get(&market_id).expect("market").params.chain_id,
-                "loan_asset": self.markets.get(&market_id).expect("market").params.loan_asset.account,
+                "event": "asset_registered",
+                "asset_id": asset_id,
+                "chain_id": chain_id,
+                "asset": account,
             })
             .to_string(),
         );
-        market_id
+        asset_id
     }
 
-    pub fn propose_param_update(&mut self, market_id: u32, update: ParamUpdate) {
+    pub fn propose_param_update(&mut self, asset_id: u32, update: ParamUpdate) {
         require!(env::predecessor_account_id() == self.owner, "owner only");
         require!(
-            self.pending.get(&market_id).is_none(),
+            self.pending.get(&asset_id).is_none(),
             "pending change exists"
         );
-        let mut market = self
-            .markets
-            .get(&market_id)
-            .expect("market not found")
-            .clone();
-        update.apply_to(&mut market.params);
-        validate_market_params(&market.params);
+        let mut entry = self.assets.get(&asset_id).expect("asset not found").clone();
+        update.apply_to(&mut entry.config);
+        validate_asset_config(&entry.config);
         self.pending.insert(
-            market_id,
+            asset_id,
             PendingParamChange {
                 update,
                 execute_at_secs: now_secs() + self.timelock_secs,
@@ -303,50 +289,46 @@ impl Market {
         env::log_str(
             &json!({
                 "event": "param_update_proposed",
-                "market_id": market_id,
+                "asset_id": asset_id,
                 "execute_at_secs": now_secs() + self.timelock_secs,
             })
             .to_string(),
         );
     }
 
-    pub fn cancel_param_update(&mut self, market_id: u32) {
+    pub fn cancel_param_update(&mut self, asset_id: u32) {
         require!(env::predecessor_account_id() == self.owner, "owner only");
-        require!(self.pending.get(&market_id).is_some(), "no pending change");
-        self.pending.remove(&market_id);
+        require!(self.pending.get(&asset_id).is_some(), "no pending change");
+        self.pending.remove(&asset_id);
         env::log_str(
             &json!({
                 "event": "param_update_cancelled",
-                "market_id": market_id,
+                "asset_id": asset_id,
             })
             .to_string(),
         );
     }
 
-    pub fn confirm_param_update(&mut self, market_id: u32) {
+    pub fn confirm_param_update(&mut self, asset_id: u32) {
         require!(env::predecessor_account_id() == self.owner, "owner only");
         let pending = self
             .pending
-            .get(&market_id)
+            .get(&asset_id)
             .expect("no pending change")
             .clone();
         require!(
             now_secs() >= pending.execute_at_secs,
             "timelock not elapsed"
         );
-        let mut market = self
-            .markets
-            .get(&market_id)
-            .expect("market not found")
-            .clone();
-        pending.update.apply_to(&mut market.params);
-        validate_market_params(&market.params);
-        self.markets.insert(market_id, market);
-        self.pending.remove(&market_id);
+        let mut entry = self.assets.get(&asset_id).expect("asset not found").clone();
+        pending.update.apply_to(&mut entry.config);
+        validate_asset_config(&entry.config);
+        self.assets.insert(asset_id, entry);
+        self.pending.remove(&asset_id);
         env::log_str(
             &json!({
                 "event": "param_update_applied",
-                "market_id": market_id,
+                "asset_id": asset_id,
             })
             .to_string(),
         );
@@ -367,21 +349,18 @@ mod tests {
         builder
     }
 
-    fn market_params() -> MarketParams {
-        MarketParams {
-            chain_family: ChainFamily::Evm,
-            chain_id: 11_155_111,
-            light_client: "client-eth2.sepolia.testnet".parse().unwrap(),
-            collateral_asset: Some(Asset {
-                kind: AssetKind::NativeEth,
-                account: "native".to_string(),
-                decimals: 18,
-            }),
-            loan_asset: Asset {
+    fn token_config(account: &str, supply: bool, collateral: bool) -> AssetConfig {
+        AssetConfig {
+            asset: Asset {
                 kind: AssetKind::Nep141,
-                account: "usdc.testnet".to_string(),
+                account: account.to_string(),
                 decimals: 6,
             },
+            family: ChainFamily::Evm,
+            chain_id: 11_155_111,
+            light_client: "client-eth2.sepolia.testnet".parse().unwrap(),
+            supply_enabled: supply,
+            collateral_enabled: collateral,
             collateral_factor_bps: 7_500,
             liquidation_threshold_bps: 8_000,
             liquidation_penalty_bps: 800,
@@ -396,14 +375,60 @@ mod tests {
             min_borrow: U128(1_000_000),
             supply_cap: U128(u128::MAX),
             borrow_cap: U128(u128::MAX),
-            collateral_price_feed: "feed-eth.testnet".parse().unwrap(),
-            loan_price_feed: "feed-usdc.testnet".parse().unwrap(),
+            price_feed: "feed.testnet".parse().unwrap(),
+        }
+    }
+
+    fn usdc_config() -> AssetConfig {
+        let mut config = token_config("usdc.testnet", true, false);
+        config.price_feed = "feed-usdc.testnet".parse().unwrap();
+        config
+    }
+
+    fn usdt_config() -> AssetConfig {
+        let mut config = token_config("usdt.testnet", true, false);
+        config.price_feed = "feed-usdt.testnet".parse().unwrap();
+        config
+    }
+
+    fn eth_config() -> AssetConfig {
+        AssetConfig {
+            asset: Asset {
+                kind: AssetKind::NativeEth,
+                account: "native".to_string(),
+                decimals: 18,
+            },
+            family: ChainFamily::Evm,
+            chain_id: 11_155_111,
+            light_client: "client-eth2.sepolia.testnet".parse().unwrap(),
+            supply_enabled: false,
+            collateral_enabled: true,
+            collateral_factor_bps: 7_500,
+            liquidation_threshold_bps: 8_000,
+            liquidation_penalty_bps: 800,
+            reserve_factor_bps: 1_000,
+            interest_curve: InterestCurve {
+                base_bps: 0,
+                slope_bps: 0,
+                kink_utilization_bps: 8_000,
+                kink_slope_bps: 0,
+            },
+            min_deposit: U128(10u128.pow(12)),
+            min_borrow: U128(1_000_000),
+            supply_cap: U128(u128::MAX),
+            borrow_cap: U128(u128::MAX),
+            price_feed: "feed-eth.testnet".parse().unwrap(),
         }
     }
 
     fn owner_market() -> Market {
         testing_env!(context("owner.testnet", 1_000).build());
         Market::new("owner.testnet".parse().unwrap(), 300)
+    }
+
+    fn owner_market_with(timelock_secs: u64) -> Market {
+        testing_env!(context("owner.testnet", 1_000).build());
+        Market::new("owner.testnet".parse().unwrap(), timelock_secs)
     }
 
     #[test]
@@ -421,95 +446,127 @@ mod tests {
         assert_eq!(market.get_timelock_secs(), 60);
     }
 
-    fn owner_market_with(timelock_secs: u64) -> Market {
+    #[test]
+    fn register_asset_assigns_sequential_ids() {
+        let mut market = owner_market();
         testing_env!(context("owner.testnet", 1_000).build());
-        Market::new("owner.testnet".parse().unwrap(), timelock_secs)
+        let usdc = market.register_asset(usdc_config());
+        let usdt = market.register_asset(usdt_config());
+        assert_eq!(usdc, 1);
+        assert_eq!(usdt, 2);
+        assert_eq!(market.get_asset_count(), 2);
+        let stored = market.get_asset(1);
+        assert_eq!(stored.config.asset.account, "usdc.testnet");
+        assert!(stored.config.supply_enabled);
+        assert!(!stored.config.collateral_enabled);
+        assert_eq!(stored.pool.interest_index.0, INITIAL_INTEREST_INDEX);
+        assert_eq!(stored.pool.total_supply.0, 0);
     }
 
     #[test]
-    fn register_market_assigns_sequential_ids() {
+    fn register_asset_rejects_duplicate_on_chain() {
         let mut market = owner_market();
         testing_env!(context("owner.testnet", 1_000).build());
-        let first = market.register_market(market_params());
-        let mut other = market_params();
-        other.chain_id = 84532;
-        other.light_client = "client-eth2.base-sepolia.testnet".parse().unwrap();
-        let second = market.register_market(other);
-        assert_eq!(first, 1);
-        assert_eq!(second, 2);
-        assert_eq!(market.get_market_count(), 2);
-        let stored = market.get_market(1);
-        assert_eq!(stored.params.chain_id, 11_155_111);
-        assert_eq!(stored.state.interest_index.0, INITIAL_INTEREST_INDEX);
-        assert_eq!(stored.state.total_supply.0, 0);
-    }
-
-    #[test]
-    fn register_market_rejects_duplicate_loan_asset_on_chain() {
-        let mut market = owner_market();
-        testing_env!(context("owner.testnet", 1_000).build());
-        market.register_market(market_params());
+        market.register_asset(usdc_config());
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            market.register_market(market_params());
+            market.register_asset(usdc_config());
         }));
         assert!(result.is_err());
     }
 
     #[test]
-    fn register_market_allows_same_asset_on_different_chain() {
+    fn register_asset_allows_same_asset_on_different_chain() {
         let mut market = owner_market();
         testing_env!(context("owner.testnet", 1_000).build());
-        market.register_market(market_params());
-        let mut other = market_params();
-        other.chain_id = 84532;
-        other.light_client = "client-eth2.base-sepolia.testnet".parse().unwrap();
-        let id = market.register_market(other);
+        market.register_asset(usdc_config());
+        let mut base_usdc = usdc_config();
+        base_usdc.chain_id = 84532;
+        base_usdc.light_client = "client-eth2.base-sepolia.testnet".parse().unwrap();
+        base_usdc.price_feed = "feed-usdc-base.testnet".parse().unwrap();
+        let id = market.register_asset(base_usdc);
         assert_eq!(id, 2);
     }
 
     #[test]
-    fn non_owner_cannot_register_market() {
+    fn register_asset_allows_eth_collateral_and_token_collateral() {
+        let mut market = owner_market();
+        testing_env!(context("owner.testnet", 1_000).build());
+        let eth = market.register_asset(eth_config());
+        let collateral_usdc = {
+            let mut config = token_config("usdc.testnet", true, true);
+            config.price_feed = "feed-usdc.testnet".parse().unwrap();
+            config
+        };
+        let usdc = market.register_asset(collateral_usdc);
+        assert_eq!(eth, 1);
+        assert_eq!(usdc, 2);
+        assert!(market.get_asset(1).config.collateral_enabled);
+        assert!(market.get_asset(2).config.collateral_enabled);
+    }
+
+    #[test]
+    fn non_owner_cannot_register_asset() {
         let mut market = owner_market();
         testing_env!(context("attacker.testnet", 1_000).build());
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            market.register_market(market_params());
+            market.register_asset(usdc_config());
         }));
         assert!(result.is_err());
-        assert_eq!(market.get_market_count(), 0);
+        assert_eq!(market.get_asset_count(), 0);
     }
 
     #[test]
-    fn register_market_rejects_inverted_economics() {
+    fn register_asset_rejects_bad_account() {
         let mut market = owner_market();
         testing_env!(context("owner.testnet", 1_000).build());
-        let mut params = market_params();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            market.register_asset(token_config("not an account", true, false));
+        }));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn register_asset_rejects_native_eth_as_supply_asset() {
+        let mut market = owner_market();
+        testing_env!(context("owner.testnet", 1_000).build());
+        let mut bad_eth = eth_config();
+        bad_eth.supply_enabled = true;
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            market.register_asset(bad_eth);
+        }));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn register_asset_rejects_asset_without_role() {
+        let mut market = owner_market();
+        testing_env!(context("owner.testnet", 1_000).build());
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            market.register_asset(token_config("idle.testnet", false, false));
+        }));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn register_asset_rejects_inverted_economics() {
+        let mut market = owner_market();
+        testing_env!(context("owner.testnet", 1_000).build());
+        let mut params = usdc_config();
         params.liquidation_threshold_bps = 7_000;
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            market.register_market(params);
+            market.register_asset(params);
         }));
         assert!(result.is_err());
     }
 
     #[test]
-    fn register_market_rejects_bad_loan_asset() {
+    fn register_asset_rejects_bad_caps() {
         let mut market = owner_market();
         testing_env!(context("owner.testnet", 1_000).build());
-        let mut params = market_params();
-        params.loan_asset.account = "not an account".to_string();
+        let mut params = usdc_config();
+        params.borrow_cap = U128(0);
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            market.register_market(params);
-        }));
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn register_market_rejects_missing_collateral() {
-        let mut market = owner_market();
-        testing_env!(context("owner.testnet", 1_000).build());
-        let mut params = market_params();
-        params.collateral_asset = None;
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            market.register_market(params);
+            market.register_asset(params);
         }));
         assert!(result.is_err());
     }
@@ -518,7 +575,7 @@ mod tests {
     fn propose_rejects_change_that_breaks_economics() {
         let mut market = owner_market();
         testing_env!(context("owner.testnet", 1_000).build());
-        market.register_market(market_params());
+        market.register_asset(usdc_config());
         testing_env!(context("owner.testnet", 2_000).build());
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             market.propose_param_update(1, ParamUpdate::CollateralFactorBps(12_000));
@@ -531,7 +588,7 @@ mod tests {
     fn timelock_blocks_early_confirmation_then_applies() {
         let mut market = owner_market();
         testing_env!(context("owner.testnet", 1_000).build());
-        market.register_market(market_params());
+        market.register_asset(usdc_config());
         testing_env!(context("owner.testnet", 2_000).build());
         market.propose_param_update(1, ParamUpdate::ReserveFactorBps(2_000));
         let pending = market.get_pending_param_change(1).expect("pending");
@@ -547,14 +604,14 @@ mod tests {
         testing_env!(context("owner.testnet", 2_301).build());
         market.confirm_param_update(1);
         assert!(market.get_pending_param_change(1).is_none());
-        assert_eq!(market.get_market(1).params.reserve_factor_bps, 2_000);
+        assert_eq!(market.get_asset(1).config.reserve_factor_bps, 2_000);
     }
 
     #[test]
     fn cancel_clears_pending_change() {
         let mut market = owner_market();
         testing_env!(context("owner.testnet", 1_000).build());
-        market.register_market(market_params());
+        market.register_asset(usdc_config());
         testing_env!(context("owner.testnet", 2_000).build());
         market.propose_param_update(1, ParamUpdate::MinBorrow(U128(2_000_000)));
         market.cancel_param_update(1);
@@ -564,14 +621,14 @@ mod tests {
             market.confirm_param_update(1);
         }));
         assert!(confirmed.is_err());
-        assert_eq!(market.get_market(1).params.min_borrow.0, 1_000_000);
+        assert_eq!(market.get_asset(1).config.min_borrow.0, 1_000_000);
     }
 
     #[test]
     fn confirm_requires_pending_change() {
         let mut market = owner_market();
         testing_env!(context("owner.testnet", 1_000).build());
-        market.register_market(market_params());
+        market.register_asset(usdc_config());
         testing_env!(context("owner.testnet", 5_000).build());
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             market.confirm_param_update(1);
@@ -583,7 +640,7 @@ mod tests {
     fn non_owner_cannot_propose_or_confirm() {
         let mut market = owner_market();
         testing_env!(context("owner.testnet", 1_000).build());
-        market.register_market(market_params());
+        market.register_asset(usdc_config());
         testing_env!(context("attacker.testnet", 2_000).build());
         let proposed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             market.propose_param_update(1, ParamUpdate::ReserveFactorBps(2_000));
