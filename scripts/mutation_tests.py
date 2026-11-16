@@ -33,28 +33,28 @@ MARKET_MUTATIONS = [
     (
         "min-deposit check removed",
         "deposit_respects_minimum_and_cap",
-        'require!(amount >= entry.config.min_deposit.0, "deposit below minimum");',
-        'require!(true, "deposit below minimum");',
+        '            amount >= entry.config.min_deposit.0,\n            "deposit below minimum"',
+        '            true,\n            "deposit below minimum"',
         1,
     ),
     (
         "withdraw share limit removed",
         "withdraw_never_exceeds_share_value",
-        'require!(balance >= shares_out, "insufficient shares");',
+        'require!(balance >= shares, "insufficient shares");',
         'require!(true, "insufficient shares");',
         1,
     ),
     (
         "withdraw liquidity check removed",
         "withdraw_requires_liquidity",
-        '            amount.0 <= entry.pool.total_supply.0.saturating_sub(entry.pool.total_borrow.0),\n            "insufficient liquidity, queue withdrawal instead"',
+        '            amount.0\n                <= entry\n                    .pool\n                    .total_supply\n                    .0\n                    .saturating_sub(entry.pool.total_borrow.0),\n            "insufficient liquidity, queue withdrawal instead"',
         '            true,\n            "insufficient liquidity, queue withdrawal instead"',
         1,
     ),
     (
         "claim liquidity check removed",
         "claim_requires_liquidity_and_keeps_queue",
-        '            payable <= entry.pool.total_supply.0.saturating_sub(entry.pool.total_borrow.0),\n            "insufficient liquidity"',
+        '            payable\n                <= entry\n                    .pool\n                    .total_supply\n                    .0\n                    .saturating_sub(entry.pool.total_borrow.0),\n            "insufficient liquidity"',
         '            true,\n            "insufficient liquidity"',
         1,
     ),
@@ -184,7 +184,7 @@ def run_market_mutation(repo, worktree, current_head, mutation):
         return False
     target.write_text(source.replace(old, new, 1))
     command = ["cargo", "test", "--manifest-path", str(manifest), "--lib", test]
-    result = run(command)
+    result = run(command, env={"CARGO_TARGET_DIR": str(repo / "target")})
     run(["git", "checkout", "--", MARKET_LIB], cwd=worktree)
     killed = result.returncode != 0
     print(f"[killed] {description}" if killed else f"[ALIVE] {description}")
@@ -207,8 +207,12 @@ def run_market_mutations(repo, current_head):
     return True
 
 
-def run(command, cwd=None):
-    return subprocess.run(command, cwd=cwd, text=True, capture_output=True)
+def run(command, cwd=None, env=None):
+    import os
+    merged = os.environ.copy()
+    if env:
+        merged.update(env)
+    return subprocess.run(command, cwd=cwd, text=True, capture_output=True, env=merged)
 
 
 def ensure_worktree(repo, worktree, current_head):
@@ -255,7 +259,7 @@ def main():
                 command = ["cargo", "test", "--manifest-path", str(manifest), "--test", "local_e2e", test]
             else:
                 command = ["cargo", "test", "--manifest-path", str(manifest), "--lib", test]
-            result = run(command)
+            result = run(command, env={"CARGO_TARGET_DIR": str(repo / "target")})
             killed = result.returncode != 0
             if killed:
                 print(f"[killed] {description}")

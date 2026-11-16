@@ -501,12 +501,6 @@ impl Market {
         let mut entry = self.entry_of(asset_id);
         accrue(&mut entry.pool, &entry.config);
         let shares_out = mul_div_ceil(amount.0, INDEX_SCALE, entry.pool.interest_index.0);
-        let balance = self
-            .supplier_shares
-            .get(&(asset_id, account.clone()))
-            .copied()
-            .unwrap_or(0);
-        require!(balance >= shares_out, "insufficient shares");
         require!(
             amount.0
                 <= entry
@@ -547,12 +541,6 @@ impl Market {
             "deposit below minimum"
         );
         let shares_out = mul_div_ceil(amount.0, INDEX_SCALE, entry.pool.interest_index.0);
-        let balance = self
-            .supplier_shares
-            .get(&(asset_id, account.clone()))
-            .copied()
-            .unwrap_or(0);
-        require!(balance >= shares_out, "insufficient shares");
         self.burn_shares(asset_id, &account, shares_out);
         let key = (asset_id, account.clone());
         let mut queued = self.queue.get(&key).cloned().unwrap_or(QueuedWithdrawal {
@@ -823,8 +811,10 @@ impl FungibleTokenReceiver for Market {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use near_sdk::test_utils::VMContextBuilder;
+    #[allow(deprecated)]
+    use near_sdk::test_utils::{testing_env_with_promise_results, VMContextBuilder};
     use near_sdk::testing_env;
+    use near_sdk::PromiseResult;
     use proptest::prelude::*;
 
     fn context(predecessor: &str, timestamp_secs: u64) -> VMContextBuilder {
@@ -1497,6 +1487,36 @@ mod tests {
             market.on_withdrawal_result(1, "alice.testnet".parse().unwrap(), U128(100));
         }));
         assert!(result.is_err());
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn forged_success_cannot_clear_owed() {
+        let mut market = owner_market();
+        register_usdc(&mut market);
+        deposit_as(&mut market, "alice.testnet", 1, 2_000_000);
+        testing_env!(context("alice.testnet", 2_000).build());
+        market.withdraw(1, U128(300_000));
+        assert_eq!(
+            market
+                .get_owed_withdrawal(1, "alice.testnet".parse().unwrap())
+                .0,
+            300_000
+        );
+        testing_env_with_promise_results(
+            context("attacker.testnet", 3_000).build(),
+            PromiseResult::Successful(vec![]),
+        );
+        let forged = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            market.on_withdrawal_result(1, "alice.testnet".parse().unwrap(), U128(300_000));
+        }));
+        assert!(forged.is_err());
+        assert_eq!(
+            market
+                .get_owed_withdrawal(1, "alice.testnet".parse().unwrap())
+                .0,
+            300_000
+        );
     }
 
     proptest! {
