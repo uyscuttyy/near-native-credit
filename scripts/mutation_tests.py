@@ -38,10 +38,10 @@ MARKET_MUTATIONS = [
         1,
     ),
     (
-        "withdraw share limit removed",
-        "withdraw_never_exceeds_share_value",
-        'require!(balance >= shares, "insufficient shares");',
-        'require!(true, "insufficient shares");',
+        "withdrawal rounding floor mutant",
+        "ceil_rounding_never_pays_more_than_shares",
+        "let shares_out = mul_div_ceil(amount.0, INDEX_SCALE, entry.pool.interest_index.0);",
+        "let shares_out = mul_div(amount.0, INDEX_SCALE, entry.pool.interest_index.0);",
         1,
     ),
     (
@@ -60,7 +60,7 @@ MARKET_MUTATIONS = [
     ),
     (
         "callback-only guard removed",
-        "on_withdrawal_result_rejects_external_caller",
+        "forged_success_cannot_clear_owed",
         '            env::predecessor_account_id() == env::current_account_id(),\n            "internal only"',
         '            true,\n            "internal only"',
         1,

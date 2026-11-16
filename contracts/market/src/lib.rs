@@ -415,14 +415,16 @@ impl Market {
             .get(&(asset_id, account.clone()))
             .copied()
             .unwrap_or(0);
-        require!(balance >= shares, "insufficient shares");
-        if balance == shares {
+        let remaining = balance.checked_sub(shares);
+        require!(remaining.is_some(), "insufficient shares");
+        let remaining = remaining.unwrap();
+        if remaining == 0 {
             self.supplier_shares.remove(&(asset_id, account.clone()));
         } else {
             *self
                 .supplier_shares
                 .get_mut(&(asset_id, account.clone()))
-                .unwrap() = balance - shares;
+                .unwrap() = remaining;
         }
     }
 
@@ -1517,6 +1519,26 @@ mod tests {
                 .0,
             300_000
         );
+    }
+
+    #[test]
+    fn ceil_rounding_never_pays_more_than_shares() {
+        let mut market = owner_market();
+        register_usdc(&mut market);
+        deposit_as(&mut market, "alice.testnet", 1, 1_000_000);
+        deposit_as(&mut market, "bob.testnet", 1, 1_000_000);
+        let mut entry = market.assets.get(&1).unwrap().clone();
+        entry.pool.interest_index = U128(INDEX_SCALE + 1);
+        market.assets.insert(1, entry);
+        testing_env!(context("alice.testnet", 2_000).build());
+        market.withdraw(1, U128(999_999));
+        assert_eq!(
+            market
+                .get_supplier_shares(1, "alice.testnet".parse().unwrap())
+                .0,
+            1_000_000 - 999_999
+        );
+        assert_eq!(market.get_asset(1).pool.total_supply.0, 2_000_000 - 999_999);
     }
 
     proptest! {
