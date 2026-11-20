@@ -145,9 +145,10 @@ history without chain archaeology.
    state, timelocked parameter updates (owner + tests). Done
    (`5991342`, cross-asset model).
 2. Supplier side: deposit/shares/withdraw/queue + index accrual, with property
-   and mutation tests (reuse the harness). ← current step
+   and mutation tests (reuse the harness). Done (`1c96b1e`, 39 tests).
 3. Borrower side: multi-asset positions (basket health, borrow/repay per
-   asset), porting the proven proof/signature machine.
+   asset), porting the proven proof/signature machine. Done
+   (`fc06464`+`a62a2cc`, 80 tests, 20 mutants killed). ← current step: 4
 4. Liquidation + loss waterfall with events.
 5. Agents updated for multi-asset scanning; dashboard reads the new contract.
 6. Fresh testnet deployment; run alongside v2 before cutover.
