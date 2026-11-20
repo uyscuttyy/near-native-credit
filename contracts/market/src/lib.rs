@@ -2441,21 +2441,22 @@ mod tests {
     }
 
     #[test]
-    fn create_position_requires_storage_deposit_and_collateral_asset() {
-        let mut market = owner_market();
-        register_usdc(&mut market);
+    fn create_position_requires_storage_deposit() {
+        let mut market = market_with_collateral_and_supply();
         testing_env!(context("alice.testnet", 2_000).build());
         let no_deposit = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            market.create_position(1);
+            market.create_position(2);
         }));
         assert!(no_deposit.is_err());
-        let usdt_supply_asset = {
-            testing_env!(context("owner.testnet", 2_050).build());
-            market.register_asset(usdt_config())
-        };
+        assert_eq!(market.get_position_count(), 0);
+    }
+
+    #[test]
+    fn create_position_requires_collateral_asset() {
+        let mut market = market_with_collateral_and_supply();
         testing_env!(context_deposit("alice.testnet", 2_100, STORAGE_DEPOSIT_YOCTO).build());
         let not_collateral = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            market.create_position(usdt_supply_asset);
+            market.create_position(1);
         }));
         assert!(not_collateral.is_err());
         assert_eq!(market.get_position_count(), 0);
@@ -2572,22 +2573,38 @@ mod tests {
     }
 
     #[test]
-    fn borrow_rejects_over_limit_cap_and_liquidity() {
+    fn borrow_health_check_is_enforced() {
+        let mut market = market_with_collateral_and_supply();
+        let position_id = create_funded_position(&mut market, 2_000_000_000_000_000_000);
+        testing_env!(context("alice.testnet", 3_000).build());
+        let over_health = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            market.borrow(position_id, 1, U128(40_000_000_000));
+        }));
+        assert!(over_health.is_err());
+        assert!(market.get_position(position_id).pending_borrow.is_none());
+    }
+
+    #[test]
+    fn borrow_rejects_insufficient_liquidity() {
         let mut market = market_with_collateral_and_supply();
         let position_id = create_funded_position(&mut market, 2_000_000_000_000_000_000_000);
         testing_env!(context("alice.testnet", 3_000).build());
-        let too_much = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            market.borrow(position_id, 1, U128(4_000_000_000_000));
-        }));
-        assert!(too_much.is_err());
-        let below_min = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            market.borrow(position_id, 1, U128(1_000));
-        }));
-        assert!(below_min.is_err());
         let no_liquidity = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             market.borrow(position_id, 1, U128(200_000_000_000));
         }));
         assert!(no_liquidity.is_err());
+        assert!(market.get_position(position_id).pending_borrow.is_none());
+    }
+
+    #[test]
+    fn borrow_rejects_below_minimum() {
+        let mut market = market_with_collateral_and_supply();
+        let position_id = create_funded_position(&mut market, 2_000_000_000_000_000_000_000);
+        testing_env!(context("alice.testnet", 3_000).build());
+        let below_min = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            market.borrow(position_id, 1, U128(1_000));
+        }));
+        assert!(below_min.is_err());
         assert!(market.get_position(position_id).pending_borrow.is_none());
     }
 
@@ -2693,6 +2710,25 @@ mod tests {
         market.positions.insert(position_id, position);
         let after_double_debt = market.get_health(position_id).0;
         assert!(after_double_debt < healthy);
+    }
+
+    #[test]
+    fn repay_rejects_non_owner() {
+        let mut market = market_with_collateral_and_supply();
+        let position_id = create_funded_position(&mut market, 2_000_000_000_000_000_000_000);
+        testing_env!(context("usdc.testnet", 2_500).build());
+        let not_owner = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            market.ft_on_transfer(
+                "bob.testnet".parse().unwrap(),
+                U128(1_000_000_000),
+                serde_json::to_string(&serde_json::json!({
+                    "action": "repay",
+                    "position_id": position_id,
+                }))
+                .unwrap(),
+            );
+        }));
+        assert!(not_owner.is_err());
     }
 
     #[test]
